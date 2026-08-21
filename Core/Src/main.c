@@ -24,6 +24,9 @@
 /* USER CODE BEGIN Includes */
 #include "string.h"
 #include "lwip/netif.h"
+#include "lwip/dhcp.h"
+#include "lwip/apps/snmp.h"
+#include "lwip/apps/snmp_mib2.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,14 +80,6 @@ int main(void)
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
 
-  /* Enable the CPU Cache */
-
-  /* Enable I-Cache---------------------------------------------------------*/
-  SCB_EnableICache();
-
-  /* Enable D-Cache---------------------------------------------------------*/
-  SCB_EnableDCache();
-
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -114,6 +109,17 @@ int main(void)
 
   netif_set_addr(&gnetif, &ipaddr, &netmask, &gw);
   netif_set_up(&gnetif);
+
+  /* --- SNMP agent setup --- */
+  static const struct snmp_mib *mibs[] = { &mib2 };
+  snmp_set_mibs(mibs, LWIP_ARRAYSIZE(mibs));
+
+  ip_addr_t manager_ip;
+  IP4_ADDR(&manager_ip, 192, 168, 80, 100);
+  snmp_trap_dst_ip_set(0, &manager_ip);
+  snmp_trap_dst_enable(0, 1);
+
+  snmp_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -125,6 +131,16 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  MX_LWIP_Process();
 
+	  static uint32_t lastTrap = 0;
+	  if (HAL_GetTick() - lastTrap > 10000)
+	  {
+	    static const u32_t my_enterprise_oid[] = {1, 3, 6, 1, 4, 1, 12345, 1};
+	    struct snmp_obj_id eoid;
+	    snmp_oid_assign(&eoid, my_enterprise_oid, LWIP_ARRAYSIZE(my_enterprise_oid));
+
+	    snmp_send_trap(&eoid, SNMP_GENTRAP_ENTERPRISE_SPECIFIC, 1, NULL);
+	    lastTrap = HAL_GetTick();
+	  }
 
   }
   /* USER CODE END 3 */
@@ -238,29 +254,6 @@ void MPU_Config(void)
   MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
   MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
-
-  /** Initializes and configures the Region and the memory to be protected
-  */
-  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
-  MPU_InitStruct.BaseAddress = 0x30020000;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_128KB;
-  MPU_InitStruct.SubRegionDisable = 0x0;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
-  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
-
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
-
-  /** Initializes and configures the Region and the memory to be protected
-  */
-  MPU_InitStruct.Number = MPU_REGION_NUMBER2;
-  MPU_InitStruct.BaseAddress = 0x30040000;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_512B;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
   /* Enables the MPU */
