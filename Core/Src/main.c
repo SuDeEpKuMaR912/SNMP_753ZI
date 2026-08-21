@@ -68,6 +68,9 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	__HAL_RCC_D2SRAM1_CLK_ENABLE();
+	__HAL_RCC_D2SRAM2_CLK_ENABLE();
+	__HAL_RCC_D2SRAM3_CLK_ENABLE();
 
   /* USER CODE END 1 */
 
@@ -102,7 +105,15 @@ int main(void)
   MX_GPIO_Init();
   MX_LWIP_Init();
   /* USER CODE BEGIN 2 */
+  dhcp_stop(&gnetif);
 
+  ip_addr_t ipaddr, netmask, gw;
+  IP4_ADDR(&ipaddr,  192, 168, 80, 55);
+  IP4_ADDR(&netmask, 255, 255, 255, 0);
+  IP4_ADDR(&gw,      192, 168, 80, 1);
+
+  netif_set_addr(&gnetif, &ipaddr, &netmask, &gw);
+  netif_set_up(&gnetif);
   /* USER CODE END 2 */
 
   /* Infinite loop */
