@@ -33,6 +33,8 @@
 #include "lwip/apps/snmpv3.h"
 #include "lwip/apps/snmp_snmpv2_framework.h"
 #include "lwip/apps/snmp_snmpv2_usm.h"
+
+#include "snmpv3_app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -168,6 +170,11 @@ int main(void)
   IP4_ADDR(&manager_ip, 192, 168, 80, 100);
   snmp_trap_dst_ip_set(0, &manager_ip);
   snmp_trap_dst_enable(0, 1);
+
+  if (snmpv3_app_init() != ERR_OK)
+  {
+      Error_Handler();
+  }
 
   snmp_init();
   /* USER CODE END 2 */

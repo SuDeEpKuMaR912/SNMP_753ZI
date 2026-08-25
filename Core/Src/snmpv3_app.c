@@ -1,12 +1,14 @@
 #include "snmpv3_app.h"
 #include <string.h>
 #include "lwip/err.h"
+#include "snmp_persist.h"
 
 static const char engine_id[] =
 {
     0x80, 0x00, 0x1F, 0x88,
-    0x80, 0x12, 0x34, 0x56,
-    0x78, 0x9A, 0xBC, 0xDE
+    0x03,
+    0x00, 0x80, 0xE1, 0x00,
+    0x00, 0x00
 };
 
 void snmpv3_get_engine_id(const char **id, u8_t *len)
@@ -23,7 +25,21 @@ err_t snmpv3_set_engine_id(const char *id, u8_t len)
     return ERR_OK;
 }
 
-static u32_t engine_boots = 1;
+static u32_t engine_boots = 0;
+
+err_t snmpv3_app_init(void)
+{
+    uint32_t boots;
+
+    if (SNMP_Persist_Init(&boots) != HAL_OK)
+    {
+        return ERR_IF;
+    }
+
+    engine_boots = boots;
+
+    return ERR_OK;
+}
 
 u32_t snmpv3_get_engine_boots(void)
 {

@@ -3,4 +3,6 @@
 
 #include "lwip/apps/snmpv3.h"
 
+err_t snmpv3_app_init(void);
+
 #endif
