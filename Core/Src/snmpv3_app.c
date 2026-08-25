@@ -106,12 +106,67 @@ err_t snmpv3_get_user(const char *username, snmpv3_auth_algo_t *auth_algo, u8_t 
         return ERR_OK;
     }
 
+    /*
+     * User 3: lwippriv
+     * SHA authentication, and privacy
+     */
+    if (strcmp(username, "lwippriv") == 0)
+    {
+        if (auth_algo != NULL)
+        {
+            *auth_algo = SNMP_V3_AUTH_ALGO_SHA;
+        }
+
+        if (priv_algo != NULL)
+        {
+            *priv_algo = SNMP_V3_PRIV_ALGO_AES;
+        }
+
+        if (auth_key != NULL || priv_key != NULL)
+        {
+            const char *id;
+            u8_t id_len;
+
+            snmpv3_get_engine_id(&id, &id_len);
+
+            /*
+             * Generate the localized SHA key.
+             * lwIP uses the resulting key for both
+             * authentication and AES privacy.
+             */
+
+            if (auth_key != NULL)
+            {
+                snmpv3_password_to_key_sha(
+                    (const u8_t *)"maplesyrup",
+                    strlen("maplesyrup"),
+                    (const u8_t *)id,
+                    id_len,
+                    auth_key
+                );
+            }
+
+            if (priv_key != NULL)
+            {
+                snmpv3_password_to_key_sha(
+                    (const u8_t *)"maplesyrup",
+                    strlen("maplesyrup"),
+                    (const u8_t *)id,
+                    id_len,
+                    priv_key
+                );
+            }
+        }
+
+        return ERR_OK;
+    }
+
     return ERR_VAL;
 }
 
 u8_t snmpv3_get_amount_of_users(void)
 {
-    return 2;
+    return 3;
 }
 
 err_t snmpv3_get_user_storagetype(
@@ -123,7 +178,7 @@ err_t snmpv3_get_user_storagetype(
         return ERR_ARG;
     }
 
-    if (strcmp(username, "lwip") != 0 && strcmp(username, "lwipsha") != 0)
+    if (strcmp(username, "lwip") != 0 && strcmp(username, "lwipsha") != 0 && strcmp(username, "lwippriv") != 0)
     {
         return ERR_VAL;
     }
@@ -149,6 +204,12 @@ err_t snmpv3_get_username(char *username, u8_t index)
     if (index == 1)
     {
         strcpy(username, "lwipsha");
+        return ERR_OK;
+    }
+
+    if (index == 2)
+    {
+        strcpy(username, "lwippriv");
         return ERR_OK;
     }
 
