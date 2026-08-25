@@ -45,40 +45,73 @@ void snmpv3_reset_engine_time(void)
     /* HAL_GetTick() naturally continues from the MCU uptime */
 }
 
-err_t snmpv3_get_user(
-    const char *username,
-    snmpv3_auth_algo_t *auth_algo,
-    u8_t *auth_key,
-    snmpv3_priv_algo_t *priv_algo,
-    u8_t *priv_key)
+err_t snmpv3_get_user(const char *username, snmpv3_auth_algo_t *auth_algo, u8_t *auth_key, snmpv3_priv_algo_t *priv_algo, u8_t *priv_key)
 {
     if (username == NULL)
     {
         return ERR_ARG;
     }
 
-    if (strcmp(username, "lwip") != 0)
+    /*
+     * User 1: lwip
+     * noAuthNoPriv
+     */
+    if (strcmp(username, "lwip") == 0)
     {
-        return ERR_VAL;
+        if (auth_algo != NULL)
+        {
+            *auth_algo = SNMP_V3_AUTH_ALGO_INVAL;
+        }
+
+        if (priv_algo != NULL)
+        {
+            *priv_algo = SNMP_V3_PRIV_ALGO_INVAL;
+        }
+
+        return ERR_OK;
     }
 
-    /* Tell lwIP what security algorithms this user uses */
-    if (auth_algo != NULL)
+    /*
+     * User 2: lwipsha
+     * SHA authentication, no privacy
+     */
+    if (strcmp(username, "lwipsha") == 0)
     {
-        *auth_algo = SNMP_V3_AUTH_ALGO_INVAL;
+        if (auth_algo != NULL)
+        {
+            *auth_algo = SNMP_V3_AUTH_ALGO_SHA;
+        }
+
+        if (priv_algo != NULL)
+        {
+            *priv_algo = SNMP_V3_PRIV_ALGO_INVAL;
+        }
+
+        if (auth_key != NULL)
+        {
+            const char *id;
+            u8_t id_len;
+
+            snmpv3_get_engine_id(&id, &id_len);
+
+            snmpv3_password_to_key_sha(
+                (const u8_t *)"maplesyrup",
+                strlen("maplesyrup"),
+                (const u8_t *)id,
+                id_len,
+                auth_key
+            );
+        }
+
+        return ERR_OK;
     }
 
-    if (priv_algo != NULL)
-    {
-        *priv_algo = SNMP_V3_PRIV_ALGO_INVAL;
-    }
-
-    return ERR_OK;
+    return ERR_VAL;
 }
 
 u8_t snmpv3_get_amount_of_users(void)
 {
-    return 1;
+    return 2;
 }
 
 err_t snmpv3_get_user_storagetype(
@@ -90,7 +123,7 @@ err_t snmpv3_get_user_storagetype(
         return ERR_ARG;
     }
 
-    if (strcmp(username, "lwip") != 0)
+    if (strcmp(username, "lwip") != 0 && strcmp(username, "lwipsha") != 0)
     {
         return ERR_VAL;
     }
@@ -107,14 +140,19 @@ err_t snmpv3_get_username(char *username, u8_t index)
         return ERR_ARG;
     }
 
-    if (index != 0)
+    if (index == 0)
     {
-        return ERR_VAL;
+        strcpy(username, "lwip");
+        return ERR_OK;
     }
 
-    strcpy(username, "lwip");
+    if (index == 1)
+    {
+        strcpy(username, "lwipsha");
+        return ERR_OK;
+    }
 
-    return ERR_OK;
+    return ERR_VAL;
 }
 
 
