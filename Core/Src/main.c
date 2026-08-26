@@ -35,6 +35,7 @@
 #include "lwip/apps/snmp_snmpv2_usm.h"
 
 #include "snmpv3_app.h"
+#include "telnet_server.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -177,6 +178,8 @@ int main(void)
   }
 
   snmp_init();
+
+  telnet_server_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
