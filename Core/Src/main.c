@@ -27,6 +27,14 @@
 #include "lwip/dhcp.h"
 #include "lwip/apps/snmp.h"
 #include "lwip/apps/snmp_mib2.h"
+#include <string.h>
+#include <stddef.h>
+
+#include "lwip/apps/snmpv3.h"
+#include "lwip/apps/snmp_snmpv2_framework.h"
+#include "lwip/apps/snmp_snmpv2_usm.h"
+
+#include "snmpv3_app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +54,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+RNG_HandleTypeDef hrng;
+
 /* USER CODE BEGIN PV */
 extern struct netif gnetif;
 /* USER CODE END PV */
@@ -54,12 +64,47 @@ extern struct netif gnetif;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_RNG_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int mbedtls_hardware_poll(void *data,
+                          unsigned char *output,
+                          size_t len,
+                          size_t *olen)
+{
+    uint32_t random_number;
+    size_t offset = 0;
+
+    (void)data;
+
+    while (offset < len)
+    {
+        if (HAL_RNG_GenerateRandomNumber(&hrng, &random_number) != HAL_OK)
+        {
+            *olen = 0;
+            return -1;
+        }
+
+        size_t copy_len = len - offset;
+
+        if (copy_len > sizeof(random_number))
+        {
+            copy_len = sizeof(random_number);
+        }
+
+        memcpy(output + offset, &random_number, copy_len);
+
+        offset += copy_len;
+    }
+
+    *olen = offset;
+
+    return 0;
+}
 
 /* USER CODE END 0 */
 
@@ -98,6 +143,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_RNG_Init();
   MX_LWIP_Init();
   /* USER CODE BEGIN 2 */
   dhcp_stop(&gnetif);
@@ -111,13 +157,24 @@ int main(void)
   netif_set_up(&gnetif);
 
   /* --- SNMP agent setup --- */
-  static const struct snmp_mib *mibs[] = { &mib2 };
+  static const struct snmp_mib *mibs[] =
+  {
+      &mib2,
+      &snmpframeworkmib,
+      &snmpusmmib
+  };
+
   snmp_set_mibs(mibs, LWIP_ARRAYSIZE(mibs));
 
   ip_addr_t manager_ip;
   IP4_ADDR(&manager_ip, 192, 168, 80, 100);
   snmp_trap_dst_ip_set(0, &manager_ip);
   snmp_trap_dst_enable(0, 1);
+
+  if (snmpv3_app_init() != ERR_OK)
+  {
+      Error_Handler();
+  }
 
   snmp_init();
   /* USER CODE END 2 */
@@ -168,9 +225,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 4;
@@ -203,6 +261,33 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief RNG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RNG_Init(void)
+{
+
+  /* USER CODE BEGIN RNG_Init 0 */
+
+  /* USER CODE END RNG_Init 0 */
+
+  /* USER CODE BEGIN RNG_Init 1 */
+
+  /* USER CODE END RNG_Init 1 */
+  hrng.Instance = RNG;
+  hrng.Init.ClockErrorDetection = RNG_CED_ENABLE;
+  if (HAL_RNG_Init(&hrng) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RNG_Init 2 */
+
+  /* USER CODE END RNG_Init 2 */
+
 }
 
 /**

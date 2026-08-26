@@ -178,12 +178,119 @@ snmp_send_trap(const struct snmp_obj_id *eoid, s32_t generic_trap, s32_t specifi
   u16_t i, tot_len;
   err_t err = ERR_OK;
 
-  LWIP_ASSERT_CORE_LOCKED();
-
   trap_msg.snmp_version = 0;
 
   for (i = 0, td = &trap_dst[0]; i < SNMP_TRAP_DESTINATIONS; i++, td++) {
     if ((td->enable != 0) && !ip_addr_isany(&td->dip)) {
+
+    	//USER CODE FOR SNMPV3//
+    	struct snmp_request request;
+    	  struct snmp_varbind vb;
+    	  u32_t sysuptime;
+    	  u32_t trap_oid_value[SNMP_MAX_OBJ_ID_LEN];
+
+    	  LWIP_ASSERT_CORE_LOCKED();
+
+    	  memset(&request, 0, sizeof(request));
+
+    	  request.version = SNMP_VERSION_3;
+    	  request.msg_id = 1;
+    	  request.msg_max_size = 1472;
+    	  request.msg_flags = 0x01 | 0x02;
+
+    	  request.msg_security_model = 3;
+
+    	  memcpy(request.msg_user_name, "sudeepk",
+    	         sizeof("sudeepk") - 1);
+
+    	  request.msg_user_name_len = sizeof("sudeepk") - 1;
+    	  request.context_name_len = 0;
+
+    	  request.request_out_type = SNMP_ASN1_CLASS_CONTEXT | SNMP_ASN1_CONTENTTYPE_CONSTRUCTED | SNMP_ASN1_CONTEXT_PDU_V2_TRAP;
+
+    	  request.request_id = 1;
+    	  request.error_status = SNMP_ERR_NOERROR;
+    	  request.error_index = 0;
+
+    	  err = snmp_prepare_outbound_frame(&request);
+
+    	  if (err == ERR_OK) {
+    	      memset(&vb, 0, sizeof(vb));
+
+    	      MIB2_COPY_SYSUPTIME_TO(&sysuptime);
+
+    	      vb.type = SNMP_ASN1_TYPE_TIMETICKS;
+    	      vb.value = &sysuptime;
+    	      vb.value_len = sizeof(sysuptime);
+
+    	      {
+    	          static const u32_t oid[] = {1, 3, 6, 1, 2, 1, 1, 3, 0};
+    	          snmp_oid_assign(&vb.oid, oid, LWIP_ARRAYSIZE(oid));
+    	      }
+
+    	      err = snmp_append_outbound_varbind(
+    	          &request.outbound_pbuf_stream,
+    	          &vb
+    	      );
+
+    	      if (err == ERR_OK) {
+    	          static const u32_t trap_oid[] =
+    	              {1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0};
+
+    	          memset(&vb, 0, sizeof(vb));
+
+    	          snmp_oid_assign(&vb.oid,
+    	                          trap_oid,
+    	                          LWIP_ARRAYSIZE(trap_oid));
+
+    	          memcpy(trap_oid_value,
+    	                 eoid->id,
+    	                 eoid->len * sizeof(u32_t));
+
+    	          vb.type = SNMP_ASN1_TYPE_OBJECT_ID;
+    	          vb.value = trap_oid_value;
+    	          vb.value_len = eoid->len * sizeof(u32_t);
+
+    	          err = snmp_append_outbound_varbind(
+    	              &request.outbound_pbuf_stream,
+    	              &vb
+    	          );
+    	      }
+
+    	      if (err == ERR_OK) {
+    	          struct snmp_varbind *vb_ptr;
+
+    	          for (vb_ptr = varbinds;
+    	               vb_ptr != NULL;
+    	               vb_ptr = vb_ptr->next) {
+
+    	              err = snmp_append_outbound_varbind(
+    	                  &request.outbound_pbuf_stream,
+    	                  vb_ptr
+    	              );
+
+    	              if (err != ERR_OK) {
+    	                  break;
+    	              }
+    	          }
+    	      }
+
+    	      if (err == ERR_OK) {
+    	          err = snmp_complete_outbound_frame(&request);
+    	      }
+
+    	      if (err == ERR_OK) {
+    	          err = snmp_sendto(
+    	              snmp_traps_handle,
+    	              request.outbound_pbuf,
+    	              &td->dip,
+    	              LWIP_IANA_PORT_SNMP_TRAP
+    	          );
+    	      }
+    	  }
+    	//USER CODE FOR SNMPV3 ENDS//
+
+
       /* lookup current source address for this dst */
       if (snmp_get_local_ip_for_dst(snmp_traps_handle, &td->dip, &trap_msg.sip)) {
         if (eoid == NULL) {
@@ -219,7 +326,7 @@ snmp_send_trap(const struct snmp_obj_id *eoid, s32_t generic_trap, s32_t specifi
           snmp_stats.outpkts++;
 
           /** send to the TRAP destination */
-          snmp_sendto(snmp_traps_handle, p, &td->dip, LWIP_IANA_PORT_SNMP_TRAP);
+          //snmp_sendto(snmp_traps_handle, p, &td->dip, LWIP_IANA_PORT_SNMP_TRAP);
           pbuf_free(p);
         } else {
           err = ERR_MEM;
