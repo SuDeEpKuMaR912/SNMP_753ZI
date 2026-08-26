@@ -18,6 +18,7 @@
 struct telnet_client
 {
     uint8_t telnet_state;
+    uint8_t telnet_command;
 };
 
 static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb,
@@ -80,10 +81,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb,
 
                 if (data[i] == TELNET_IAC)
                 {
-                    /*
-                     * IAC IAC represents a literal 0xFF byte.
-                     * Echo the literal byte.
-                     */
                     tcp_write(tpcb,
                               &data[i],
                               1,
@@ -96,49 +93,44 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb,
                          data[i] == TELNET_DO ||
                          data[i] == TELNET_DONT)
                 {
-                    /*
-                     * We received a Telnet negotiation command.
-                     * The next byte is the option number.
-                     */
+                    client->telnet_command = data[i];
                     client->telnet_state = TELNET_STATE_COMMAND;
                 }
                 else
                 {
-                    /*
-                     * Other Telnet command.
-                     * Ignore it for now.
-                     */
                     client->telnet_state = TELNET_STATE_DATA;
                 }
 
                 break;
 
             case TELNET_STATE_COMMAND:
+            {
+                uint8_t response[3];
 
-                /*
-                 * This byte is the Telnet option number.
-                 * We don't support any options yet, so reject it.
-                 *
-                 * The command itself was in the previous byte,
-                 * but for our current minimal implementation
-                 * we simply reject based on the option.
-                 */
+                response[0] = TELNET_IAC;
+
+                if (client->telnet_command == TELNET_WILL ||
+                    client->telnet_command == TELNET_WONT)
                 {
-                    uint8_t response[3];
-
-                    response[0] = TELNET_IAC;
+                    response[1] = TELNET_DONT;
+                }
+                else
+                {
                     response[1] = TELNET_WONT;
-                    response[2] = data[i];
-
-                    tcp_write(tpcb,
-                              response,
-                              sizeof(response),
-                              TCP_WRITE_FLAG_COPY);
                 }
 
+                response[2] = data[i];
+
+                tcp_write(tpcb,
+                          response,
+                          sizeof(response),
+                          TCP_WRITE_FLAG_COPY);
+
                 client->telnet_state = TELNET_STATE_DATA;
+                client->telnet_command = 0;
 
                 break;
+            }
 
             default:
 
@@ -173,6 +165,7 @@ static err_t telnet_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
     }
 
     client->telnet_state = TELNET_STATE_DATA;
+    client->telnet_command = 0;
 
     tcp_arg(newpcb, client);
     tcp_recv(newpcb, telnet_recv);
