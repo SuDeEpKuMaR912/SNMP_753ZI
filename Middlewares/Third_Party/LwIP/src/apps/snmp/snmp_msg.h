@@ -176,6 +176,9 @@ u8_t snmp_get_local_ip_for_dst(void *handle, const ip_addr_t *dst, ip_addr_t *re
 err_t snmp_varbind_length(struct snmp_varbind *varbind, struct snmp_varbind_len *len);
 err_t snmp_append_outbound_varbind(struct snmp_pbuf_stream *pbuf_stream, struct snmp_varbind *varbind);
 
+err_t snmp_prepare_outbound_frame(struct snmp_request *request);
+err_t snmp_complete_outbound_frame(struct snmp_request *request);
+
 #ifdef __cplusplus
 }
 #endif

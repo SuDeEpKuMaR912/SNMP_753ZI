@@ -126,7 +126,7 @@ err_t snmpv3_get_user(const char *username, snmpv3_auth_algo_t *auth_algo, u8_t 
      * User 3: lwippriv
      * SHA authentication, and privacy
      */
-    if (strcmp(username, "lwippriv") == 0)
+    if (strcmp(username, "sudeepk") == 0)
     {
         if (auth_algo != NULL)
         {
@@ -154,8 +154,8 @@ err_t snmpv3_get_user(const char *username, snmpv3_auth_algo_t *auth_algo, u8_t 
             if (auth_key != NULL)
             {
                 snmpv3_password_to_key_sha(
-                    (const u8_t *)"maplesyrup",
-                    strlen("maplesyrup"),
+                    (const u8_t *)"coral@auth@123",
+                    strlen("coral@auth@123"),
                     (const u8_t *)id,
                     id_len,
                     auth_key
@@ -165,8 +165,8 @@ err_t snmpv3_get_user(const char *username, snmpv3_auth_algo_t *auth_algo, u8_t 
             if (priv_key != NULL)
             {
                 snmpv3_password_to_key_sha(
-                    (const u8_t *)"maplesyrup",
-                    strlen("maplesyrup"),
+                    (const u8_t *)"coral@priv@123",
+                    strlen("coral@priv@123"),
                     (const u8_t *)id,
                     id_len,
                     priv_key
@@ -194,7 +194,7 @@ err_t snmpv3_get_user_storagetype(
         return ERR_ARG;
     }
 
-    if (strcmp(username, "lwip") != 0 && strcmp(username, "lwipsha") != 0 && strcmp(username, "lwippriv") != 0)
+    if (strcmp(username, "lwip") != 0 && strcmp(username, "lwipsha") != 0 && strcmp(username, "sudeepk") != 0)
     {
         return ERR_VAL;
     }
@@ -225,7 +225,7 @@ err_t snmpv3_get_username(char *username, u8_t index)
 
     if (index == 2)
     {
-        strcpy(username, "lwippriv");
+        strcpy(username, "sudeepk");
         return ERR_OK;
     }
 

@@ -259,8 +259,8 @@ static err_t snmp_process_getbulk_request(struct snmp_request *request);
 static err_t snmp_process_set_request(struct snmp_request *request);
 
 static err_t snmp_parse_inbound_frame(struct snmp_request *request);
-static err_t snmp_prepare_outbound_frame(struct snmp_request *request);
-static err_t snmp_complete_outbound_frame(struct snmp_request *request);
+err_t snmp_prepare_outbound_frame(struct snmp_request *request);
+err_t snmp_complete_outbound_frame(struct snmp_request *request);
 static void snmp_execute_write_callbacks(struct snmp_request *request);
 
 
@@ -1264,7 +1264,7 @@ snmp_parse_inbound_frame(struct snmp_request *request)
 
 #define OF_BUILD_EXEC(code) BUILD_EXEC(code, ERR_ARG)
 
-static err_t
+err_t
 snmp_prepare_outbound_frame(struct snmp_request *request)
 {
   struct snmp_asn1_tlv tlv;
@@ -1598,7 +1598,7 @@ snmp_append_outbound_varbind(struct snmp_pbuf_stream *pbuf_stream, struct snmp_v
   return ERR_OK;
 }
 
-static err_t
+err_t
 snmp_complete_outbound_frame(struct snmp_request *request)
 {
   struct snmp_asn1_tlv tlv;
