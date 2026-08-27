@@ -3,7 +3,10 @@
 #include "lwip/pbuf.h"
 #include "lwip/mem.h"
 #include "lwip/netif.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/timeouts.h"
 #include <string.h>
+#include <stdio.h>
 
 #define TELNET_PORT 23
 
@@ -89,10 +92,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                 }
                 else
                 {
-                    /*
-                     * Ignore LF if it immediately follows CR.
-                     * Terminals commonly send Enter as CR + LF.
-                     */
                     if (data[i] == '\n' && client->last_was_cr)
                     {
                         client->last_was_cr = 0;
@@ -196,10 +195,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         else if (client->password_len < sizeof(client->password) - 1)
                         {
                             client->password[client->password_len++] = data[i];
-
-                            /*
-                             * Do NOT echo password characters.
-                             */
                         }
 
                     }
@@ -216,6 +211,38 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 snprintf(response, sizeof(response), "\r\nIP Address: %s\r\n\r\n>>> ", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
 
                                 tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
+                            }
+                            else if (strncmp(client->command, "set ip ", 7) == 0)
+                            {
+                                ip4_addr_t new_ip;
+                                const char *ip_string = &client->command[7];
+
+                                if (ip4addr_aton(ip_string, &new_ip))
+                                {
+                                    char response[96];
+
+                                    snprintf(response, sizeof(response),
+                                             "\r\nChanging IP address to %s...\r\n"
+                                             "Connection will be lost.\r\n", ip4addr_ntoa(&new_ip));
+
+                                    tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
+
+                                    tcp_output(tpcb);
+
+                                    HAL_Delay(200);
+
+                                    netif_set_ipaddr(&gnetif, &new_ip);
+                                }
+                                else
+                                {
+                                    static const char error[] =
+                                        "\r\nInvalid IP address.\r\n\r\n> ";
+
+                                    tcp_write(tpcb,
+                                              error,
+                                              sizeof(error) - 1,
+                                              TCP_WRITE_FLAG_COPY);
+                                }
                             }
                             else if (strcmp(client->command, "logout") == 0)
                             {
@@ -283,26 +310,13 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
             {
                 uint8_t response[3];
 
-                /*
-                 * ECHO negotiation is special because the server
-                 * initiates it when entering password mode.
-                 */
                 if (data[i] == TELNET_ECHO)
                 {
                     if (client->telnet_command == TELNET_DO)
                     {
-                        /*
-                         * Client accepted our WILL ECHO.
-                         *
-                         * Nothing else needs to be sent.
-                         */
                     }
                     else if (client->telnet_command == TELNET_DONT)
                     {
-                        /*
-                         * Client rejected ECHO.
-                         * Tell the client we will not echo.
-                         */
                         response[0] = TELNET_IAC;
                         response[1] = TELNET_WONT;
                         response[2] = TELNET_ECHO;
@@ -315,9 +329,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                     else if (client->telnet_command == TELNET_WILL ||
                              client->telnet_command == TELNET_WONT)
                     {
-                        /*
-                         * We don't want the client controlling echo.
-                         */
                         response[0] = TELNET_IAC;
                         response[1] = TELNET_DONT;
                         response[2] = TELNET_ECHO;
