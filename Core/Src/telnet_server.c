@@ -2,6 +2,7 @@
 #include "lwip/err.h"
 #include "lwip/pbuf.h"
 #include "lwip/mem.h"
+#include "lwip/netif.h"
 #include <string.h>
 
 #define TELNET_PORT 23
@@ -21,6 +22,8 @@
 #define TELNET_LOGIN_PASSWORD      1
 #define TELNET_LOGIN_AUTHENTICATED 2
 
+extern struct netif gnetif;
+
 struct telnet_client
 {
     uint8_t telnet_state;
@@ -33,6 +36,9 @@ struct telnet_client
 
     char password[32];
     uint8_t password_len;
+
+    char command[64];
+    uint8_t command_len;
 
     uint8_t last_was_cr;
 };
@@ -137,9 +143,18 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         {
                             client->password[client->password_len] = '\0';
 
-                            if (strcmp(client->username, "sudeepk") == 0 && strcmp(client->password, "coral@auth@123") == 0)
+                            if (strcmp(client->username, "sudeepk") == 0 && strcmp(client->password, "coral@123") == 0)
                             {
-                                static const char login_ok[] = "\r\nLogin successful.\r\n";
+                            	static const char welcome_screen[] =
+                            	    "\033[2J\033[H"
+                            	    "\r\n"
+                            	    "================================\r\n"
+                            	    "       CORAL TELNET SERVER\r\n"
+                            	    "================================\r\n"
+                            	    "\r\n"
+                            	    "Welcome, sudeepk!\r\n"
+                            	    "\r\n"
+                            	    ">>> ";
 
                                 uint8_t echo_restore[] =
                                 {
@@ -150,16 +165,26 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                                 tcp_write(tpcb, echo_restore, sizeof(echo_restore), TCP_WRITE_FLAG_COPY);
 
-                                tcp_write(tpcb, login_ok, sizeof(login_ok) - 1, TCP_WRITE_FLAG_COPY);
+                                tcp_write(tpcb, welcome_screen, sizeof(welcome_screen) - 1, TCP_WRITE_FLAG_COPY);
 
                                 client->login_state = TELNET_LOGIN_AUTHENTICATED;
                             }
                             else
                             {
-                                static const char login_failed[] = "\r\nLogin incorrect.\r\nUsername: ";
+                            	uint8_t echo_restore[] =
+                            	{
+                            	    TELNET_IAC,
+                            	    TELNET_WONT,
+                            	    TELNET_ECHO
+                            	};
+
+                            	static const char login_failed[] = "\033[2J\033[H"
+                            			"Username: ";
 
                                 client->username_len = 0;
                                 client->password_len = 0;
+
+                                tcp_write(tpcb, echo_restore, sizeof(echo_restore), TCP_WRITE_FLAG_COPY);
 
                                 tcp_write(tpcb, login_failed, sizeof(login_failed) - 1, TCP_WRITE_FLAG_COPY);
 
@@ -176,7 +201,60 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                              * Do NOT echo password characters.
                              */
                         }
+
                     }
+                    else if (client->login_state == TELNET_LOGIN_AUTHENTICATED)
+                    {
+                        if (data[i] == '\r' || data[i] == '\n')
+                        {
+                            client->command[client->command_len] = '\0';
+
+                            if (strcmp(client->command, "show ip") == 0)
+                            {
+                                char response[64];
+
+                                snprintf(response, sizeof(response), "\r\nIP Address: %s\r\n\r\n>>> ", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
+
+                                tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
+                            }
+                            else if (strcmp(client->command, "logout") == 0)
+                            {
+                                static const char logout_screen[] = "\033[2J\033[H"
+                                    "Username: ";
+
+                                uint8_t echo_restore[] =
+                                {
+                                    TELNET_IAC,
+                                    TELNET_WONT,
+                                    TELNET_ECHO
+                                };
+
+                                client->username_len = 0;
+                                client->password_len = 0;
+                                client->command_len = 0;
+
+                                client->login_state = TELNET_LOGIN_USERNAME;
+
+                                tcp_write(tpcb, echo_restore, sizeof(echo_restore), TCP_WRITE_FLAG_COPY);
+
+                                tcp_write(tpcb, logout_screen, sizeof(logout_screen) - 1, TCP_WRITE_FLAG_COPY);
+                            }
+                            else
+                            {
+                                static const char unknown[] = "\r\nUnknown command.\r\n\r\n>>> ";
+
+                                tcp_write(tpcb, unknown, sizeof(unknown) - 1, TCP_WRITE_FLAG_COPY);
+                            }
+
+                            client->command_len = 0;
+                            tcp_output(tpcb);
+                        }
+                        else if (client->command_len < sizeof(client->command) - 1)
+                        {
+                            client->command[client->command_len++] = data[i];
+                        }
+                    }
+
                 }
 
                 break;
@@ -252,9 +330,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                 }
                 else
                 {
-                    /*
-                     * We don't support other Telnet options.
-                     */
                     response[0] = TELNET_IAC;
 
                     if (client->telnet_command == TELNET_WILL ||
@@ -320,6 +395,7 @@ static err_t telnet_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
     client->username_len = 0;
     client->password_len = 0;
     client->last_was_cr = 0;
+    client->command_len = 0;
 
     static const char username_prompt[] = "Username: ";
 
