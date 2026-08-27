@@ -5,6 +5,7 @@
 #include "lwip/netif.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/timeouts.h"
+#include "ip_persist.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -221,17 +222,37 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 {
                                     char response[96];
 
-                                    snprintf(response, sizeof(response),
-                                             "\r\nChanging IP address to %s...\r\n"
-                                             "Connection will be lost.\r\n", ip4addr_ntoa(&new_ip));
+                                    if (IP_Persist_Save(&new_ip) != HAL_OK)
+                                    {
+                                        static const char error[] =
+                                            "\r\nFailed to save IP address.\r\n\r\n> ";
 
-                                    tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
+                                        tcp_write(tpcb,
+                                                  error,
+                                                  sizeof(error) - 1,
+                                                  TCP_WRITE_FLAG_COPY);
 
-                                    tcp_output(tpcb);
+                                        tcp_output(tpcb);
+                                    }
+                                    else
+                                    {
+                                        snprintf(response,
+                                                 sizeof(response),
+                                                 "\r\nChanging IP address to %s...\r\n"
+                                                 "Connection will be lost.\r\n",
+                                                 ip4addr_ntoa(&new_ip));
 
-                                    HAL_Delay(200);
+                                        tcp_write(tpcb,
+                                                  response,
+                                                  strlen(response),
+                                                  TCP_WRITE_FLAG_COPY);
 
-                                    netif_set_ipaddr(&gnetif, &new_ip);
+                                        tcp_output(tpcb);
+
+                                        HAL_Delay(200);
+
+                                        netif_set_ipaddr(&gnetif, &new_ip);
+                                    }
                                 }
                                 else
                                 {

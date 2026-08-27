@@ -36,6 +36,7 @@
 
 #include "snmpv3_app.h"
 #include "telnet_server.h"
+#include "ip_persist.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -150,9 +151,20 @@ int main(void)
   dhcp_stop(&gnetif);
 
   ip_addr_t ipaddr, netmask, gw;
-  IP4_ADDR(&ipaddr,  192, 168, 80, 55);
+  ip4_addr_t default_ip;
+  ip4_addr_t saved_ip;
+
+  IP4_ADDR(&default_ip, 192, 168, 80, 55);
+
   IP4_ADDR(&netmask, 255, 255, 255, 0);
-  IP4_ADDR(&gw,      192, 168, 80, 254);
+  IP4_ADDR(&gw, 192, 168, 80, 254);
+
+  if (IP_Persist_Init(&saved_ip, &default_ip) != HAL_OK)
+  {
+      Error_Handler();
+  }
+
+  ipaddr = saved_ip;
 
   netif_set_addr(&gnetif, &ipaddr, &netmask, &gw);
   netif_set_up(&gnetif);
