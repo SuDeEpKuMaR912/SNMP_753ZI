@@ -30,6 +30,8 @@
 #include "lwip/apps/snmp_mib2.h"
 #include <string.h>
 #include <stddef.h>
+#include <sys/unistd.h>
+#include <stdio.h>
 
 #include "lwip/apps/snmpv3.h"
 #include "lwip/apps/snmp_snmpv2_framework.h"
@@ -40,6 +42,7 @@
 #include "ip_persist.h"
 
 #include "usbd_hid.h"
+#include "keyboard_matrix.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -67,6 +70,8 @@ UART_HandleTypeDef huart3;
 /* USER CODE BEGIN PV */
 extern struct netif gnetif;
 extern USBD_HandleTypeDef hUsbDeviceFS;
+
+uint8_t keyboardReport[8];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,15 +82,16 @@ static void MX_RNG_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+int _write(int file, char *ptr, int len)
+{
+    HAL_UART_Transmit(&huart3, (uint8_t*)ptr, len, HAL_MAX_DELAY);
+    return len;
+}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int mbedtls_hardware_poll(void *data,
-                          unsigned char *output,
-                          size_t len,
-                          size_t *olen)
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen)
 {
     uint32_t random_number;
     size_t offset = 0;
@@ -181,7 +187,7 @@ int main(void)
   netif_set_addr(&gnetif, &ipaddr, &netmask, &gw);
   netif_set_up(&gnetif);
 
-  /* --- SNMP agent setup --- */
+  //SNMP agent setup
   static const struct snmp_mib *mibs[] =
   {
       &mib2,
@@ -203,7 +209,23 @@ int main(void)
 
   snmp_init();
 
+  //Telnet/TCP server declaration
   telnet_server_init();
+
+  //HID Keyboard setup
+  Keyboard_Matrix_Init();
+
+  keyboardReport[0] = 0x01;   /* Report ID */
+  keyboardReport[1] = 0x00;   /* Modifier */
+  keyboardReport[2] = 0x00;   /* Reserved */
+  keyboardReport[3] = 0x00;
+  keyboardReport[4] = 0x00;
+  keyboardReport[5] = 0x00;
+  keyboardReport[6] = 0x00;
+  keyboardReport[7] = 0x00;
+
+  uint8_t currentKey;
+  uint8_t previousKey = 0x00;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -215,6 +237,37 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  MX_LWIP_Process();
 
+	  //==========HID Keyboard Code=============
+	  currentKey = Keyboard_Matrix_Scan();
+
+	  if (currentKey != 0x00 && previousKey == 0x00)
+	  {
+	      //New key pressed
+	      keyboardReport[1] = 0x00;
+	      keyboardReport[3] = currentKey;
+
+	      while (((USBD_HID_HandleTypeDef *)hUsbDeviceFS.pClassData)->state == HID_BUSY);
+
+	      USBD_HID_SendReport(&hUsbDeviceFS, keyboardReport, sizeof(keyboardReport));
+
+	      previousKey = currentKey;
+	  }
+
+	  if (currentKey == 0x00 && previousKey != 0x00)
+	  {
+	      // Key released
+	      keyboardReport[1] = 0x00;
+	      keyboardReport[3] = 0x00;
+
+	      while (((USBD_HID_HandleTypeDef *)hUsbDeviceFS.pClassData)->state == HID_BUSY);
+
+	      USBD_HID_SendReport(&hUsbDeviceFS, keyboardReport, sizeof(keyboardReport));
+
+	      previousKey = 0x00;
+	  }
+
+
+	  //===========================SNMP CODE===========================================
 	  static uint32_t lastTrap = 0;
 	  if (HAL_GetTick() - lastTrap > 10000)
 	  {
