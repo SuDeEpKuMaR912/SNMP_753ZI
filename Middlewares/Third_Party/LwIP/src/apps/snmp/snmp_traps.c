@@ -286,6 +286,9 @@ snmp_send_trap(const struct snmp_obj_id *eoid, s32_t generic_trap, s32_t specifi
     	              &td->dip,
     	              LWIP_IANA_PORT_SNMP_TRAP
     	          );
+
+    	          pbuf_free(request.outbound_pbuf);
+    	          request.outbound_pbuf = NULL;
     	      }
     	  }
     	//USER CODE FOR SNMPV3 ENDS//
