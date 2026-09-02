@@ -43,6 +43,7 @@
 
 #include "usbd_hid.h"
 #include "keyboard_matrix.h"
+#include "bms_monitor.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,12 +53,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -197,7 +196,7 @@ int main(void)
   snmp_set_mibs(mibs, LWIP_ARRAYSIZE(mibs));
 
   ip_addr_t manager_ip;
-  IP4_ADDR(&manager_ip, 192, 168, 80, 100);
+  IP4_ADDR(&manager_ip, 192, 168, 80, 7);
   snmp_trap_dst_ip_set(0, &manager_ip);
   snmp_trap_dst_enable(0, 1);
 
@@ -224,20 +223,17 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  MX_LWIP_Process();
 
-	  //===========================SNMP CODE===========================================
-	  static uint32_t lastTrap = 0;
-	  if (HAL_GetTick() - lastTrap > 10000)
-	  {
-	    static const u32_t my_enterprise_oid[] = {1, 3, 6, 1, 4, 1, 12345, 1};
-	    struct snmp_obj_id eoid;
-	    snmp_oid_assign(&eoid, my_enterprise_oid, LWIP_ARRAYSIZE(my_enterprise_oid));
-
-	    snmp_send_trap(&eoid, SNMP_GENTRAP_ENTERPRISE_SPECIFIC, 1, NULL);
-	    lastTrap = HAL_GetTick();
-	  }
-
 	  //KEYBOARD HID
 	  Keyboard_Matrix_Process();
+
+	  //BMS
+	  static uint32_t lastBMS = 0;
+
+	  if (HAL_GetTick() - lastBMS >= 5000)
+	  {
+	      Read_BMS_Data();
+	      lastBMS = HAL_GetTick();
+	  }
 
   }
   /* USER CODE END 3 */
