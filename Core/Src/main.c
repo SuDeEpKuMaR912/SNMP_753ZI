@@ -208,10 +208,10 @@ int main(void)
 
   snmp_init();
 
-  //Telnet/TCP server declaration
+  //Telnet/TCP server init
   telnet_server_init();
 
-  //keyboard hid declaration
+  //keyboard hid init
   Keyboard_Matrix_Init();
   /* USER CODE END 2 */
 
@@ -236,6 +236,7 @@ int main(void)
 	    lastTrap = HAL_GetTick();
 	  }
 
+	  //KEYBOARD HID
 	  Keyboard_Matrix_Process();
 
   }
