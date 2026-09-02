@@ -173,7 +173,6 @@ int main(void)
   ip4_addr_t saved_ip;
 
   IP4_ADDR(&default_ip, 192, 168, 80, 55);
-
   IP4_ADDR(&netmask, 255, 255, 255, 0);
   IP4_ADDR(&gw, 192, 168, 80, 254);
 
@@ -212,20 +211,8 @@ int main(void)
   //Telnet/TCP server declaration
   telnet_server_init();
 
-  //HID Keyboard setup
+  //keyboard hid declaration
   Keyboard_Matrix_Init();
-
-  keyboardReport[0] = 0x01;   /* Report ID */
-  keyboardReport[1] = 0x00;   /* Modifier */
-  keyboardReport[2] = 0x00;   /* Reserved */
-  keyboardReport[3] = 0x00;
-  keyboardReport[4] = 0x00;
-  keyboardReport[5] = 0x00;
-  keyboardReport[6] = 0x00;
-  keyboardReport[7] = 0x00;
-
-  uint8_t currentKey;
-  uint8_t previousKey = 0x00;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -236,36 +223,6 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  MX_LWIP_Process();
-
-	  //==========HID Keyboard Code=============
-	  currentKey = Keyboard_Matrix_Scan();
-
-	  if (currentKey != 0x00 && previousKey == 0x00)
-	  {
-	      //New key pressed
-	      keyboardReport[1] = 0x00;
-	      keyboardReport[3] = currentKey;
-
-	      while (((USBD_HID_HandleTypeDef *)hUsbDeviceFS.pClassData)->state == HID_BUSY);
-
-	      USBD_HID_SendReport(&hUsbDeviceFS, keyboardReport, sizeof(keyboardReport));
-
-	      previousKey = currentKey;
-	  }
-
-	  if (currentKey == 0x00 && previousKey != 0x00)
-	  {
-	      // Key released
-	      keyboardReport[1] = 0x00;
-	      keyboardReport[3] = 0x00;
-
-	      while (((USBD_HID_HandleTypeDef *)hUsbDeviceFS.pClassData)->state == HID_BUSY);
-
-	      USBD_HID_SendReport(&hUsbDeviceFS, keyboardReport, sizeof(keyboardReport));
-
-	      previousKey = 0x00;
-	  }
-
 
 	  //===========================SNMP CODE===========================================
 	  static uint32_t lastTrap = 0;
@@ -278,6 +235,8 @@ int main(void)
 	    snmp_send_trap(&eoid, SNMP_GENTRAP_ENTERPRISE_SPECIFIC, 1, NULL);
 	    lastTrap = HAL_GetTick();
 	  }
+
+	  Keyboard_Matrix_Process();
 
   }
   /* USER CODE END 3 */

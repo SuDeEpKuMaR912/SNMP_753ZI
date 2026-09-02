@@ -3,10 +3,7 @@
 
 #include "main.h"
 
-#define NUM_ROWS 5
-#define NUM_COLS 6
-
 void Keyboard_Matrix_Init(void);
-uint8_t Keyboard_Matrix_Scan(void);
+void Keyboard_Matrix_Process(void);
 
 #endif
