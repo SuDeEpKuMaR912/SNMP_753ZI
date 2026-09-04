@@ -35,10 +35,7 @@ void Read_BMS_Data(void)
     while(HAL_UART_Receive(&huart2, &ch, 1, 10) == HAL_OK);
 
     /* Send command */
-    HAL_UART_Transmit(&huart2,
-                      bms_cmd,
-                      sizeof(bms_cmd),
-                      HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huart2, bms_cmd, sizeof(bms_cmd), HAL_MAX_DELAY);
 
     /* Wait for frame start */
     while(1)
@@ -76,10 +73,7 @@ void Read_BMS_Data(void)
     }
 
     /* Receive remaining bytes */
-    if(HAL_UART_Receive(&huart2,
-                        &frame[4],
-                        totalLength - 4,
-                        1000) != HAL_OK)
+    if(HAL_UART_Receive(&huart2, &frame[4], totalLength - 4, 1000) != HAL_OK)
     {
         printf("Remaining frame receive failed\r\n");
         return;
@@ -105,19 +99,7 @@ void Read_BMS_Data(void)
     uint16_t remainCap;
     uint16_t ratedCap;
     uint16_t cycles;
-    uint16_t prodDate;
-    uint16_t year;
-    uint8_t month;
-    uint8_t day;
-    uint8_t swVersion;
     uint8_t soc;
-    uint8_t fetStatus;
-    uint8_t cellCount;
-    uint8_t ntcCount;
-
-    float temp1 = 0;
-    float temp2 = 0;
-    float temp3 = 0;
 
     /* Decode frame */
 
@@ -126,42 +108,8 @@ void Read_BMS_Data(void)
     remainCap   = ((uint16_t)p[8] << 8) | p[9];
     ratedCap    = ((uint16_t)p[10] << 8) | p[11];
     cycles      = ((uint16_t)p[12] << 8) | p[13];
-    prodDate    = ((uint16_t)p[14] << 8) | p[15];
-
-    day   = prodDate & 0x1F;
-    month = (prodDate >> 5) & 0x0F;
-    year  = 2000 + (prodDate >> 9);
-    swVersion   = p[22];
     soc         = p[23];
-    fetStatus   = p[24];
-    cellCount   = p[25];
-    ntcCount    = p[26];
 
-    /* Temperatures */
-
-    if(ntcCount >= 1)
-    {
-        uint16_t raw =
-            ((uint16_t)p[27] << 8) | p[28];
-
-        temp1 = (raw - 2731) / 10.0f;
-    }
-
-    if(ntcCount >= 2)
-    {
-        uint16_t raw =
-            ((uint16_t)p[29] << 8) | p[30];
-
-        temp2 = (raw - 2731) / 10.0f;
-    }
-
-    if(ntcCount >= 3)
-    {
-        uint16_t raw =
-            ((uint16_t)p[31] << 8) | p[32];
-
-        temp3 = (raw - 2731) / 10.0f;
-    }
 
     /* Check for battery percentage change */
     if(!soc_initialized)
@@ -183,52 +131,34 @@ void Read_BMS_Data(void)
         char current_str[24];
 
         /* SOC */
-        snprintf(soc_str,
-                 sizeof(soc_str),
-                 "SOC: %u",
-                 soc);
+        snprintf(soc_str, sizeof(soc_str), "SOC: %u", soc);
 
         /* Battery state */
         if(current > 0)
         {
-            snprintf(state_str,
-                     sizeof(state_str),
-                     "State: CHARGING");
+            snprintf(state_str, sizeof(state_str), "State: CHARGING");
         }
         else if(current < 0)
         {
-            snprintf(state_str,
-                     sizeof(state_str),
-                     "State: DISCHARGING");
+            snprintf(state_str, sizeof(state_str), "State: DISCHARGING");
         }
         else
         {
-            snprintf(state_str,
-                     sizeof(state_str),
-                     "State: IDLE");
+            snprintf(state_str, sizeof(state_str), "State: IDLE");
         }
 
         /* Voltage */
-        snprintf(voltage_str,
-                 sizeof(voltage_str),
-                 "Voltage: %.2f V",
-                 packVoltage / 100.0f);
+        snprintf(voltage_str, sizeof(voltage_str), "Voltage: %.2f V", packVoltage / 100.0f);
 
         /* Current */
-        snprintf(current_str,
-                 sizeof(current_str),
-                 "Current: %.2f A",
-                 current / 100.0f);
+        snprintf(current_str, sizeof(current_str), "Current: %.2f A", current / 100.0f);
 
 
         /* --------------------------------------------------
          * Enterprise OID
          * -------------------------------------------------- */
 
-        snmp_oid_assign(&eoid,
-                        bms_enterprise_oid,
-                        sizeof(bms_enterprise_oid) /
-                        sizeof(bms_enterprise_oid[0]));
+        snmp_oid_assign(&eoid, bms_enterprise_oid, sizeof(bms_enterprise_oid) / sizeof(bms_enterprise_oid[0]));
 
 
         /* --------------------------------------------------
@@ -244,10 +174,7 @@ void Read_BMS_Data(void)
 
         struct snmp_obj_id soc_oid;
 
-        snmp_oid_assign(&soc_oid,
-                        soc_oid_array,
-                        sizeof(soc_oid_array) /
-                        sizeof(soc_oid_array[0]));
+        snmp_oid_assign(&soc_oid, soc_oid_array, sizeof(soc_oid_array) / sizeof(soc_oid_array[0]));
 
 
         /* --------------------------------------------------
@@ -263,10 +190,7 @@ void Read_BMS_Data(void)
 
         struct snmp_obj_id state_oid;
 
-        snmp_oid_assign(&state_oid,
-                        state_oid_array,
-                        sizeof(state_oid_array) /
-                        sizeof(state_oid_array[0]));
+        snmp_oid_assign(&state_oid, state_oid_array, sizeof(state_oid_array) / sizeof(state_oid_array[0]));
 
 
         /* --------------------------------------------------
@@ -282,10 +206,7 @@ void Read_BMS_Data(void)
 
         struct snmp_obj_id voltage_oid;
 
-        snmp_oid_assign(&voltage_oid,
-                        voltage_oid_array,
-                        sizeof(voltage_oid_array) /
-                        sizeof(voltage_oid_array[0]));
+        snmp_oid_assign(&voltage_oid, voltage_oid_array, sizeof(voltage_oid_array) / sizeof(voltage_oid_array[0]));
 
 
         /* --------------------------------------------------
@@ -301,10 +222,7 @@ void Read_BMS_Data(void)
 
         struct snmp_obj_id current_oid;
 
-        snmp_oid_assign(&current_oid,
-                        current_oid_array,
-                        sizeof(current_oid_array) /
-                        sizeof(current_oid_array[0]));
+        snmp_oid_assign(&current_oid, current_oid_array, sizeof(current_oid_array) / sizeof(current_oid_array[0]));
 
 
         /* --------------------------------------------------
@@ -359,10 +277,7 @@ void Read_BMS_Data(void)
 
         err_t trap_err;
 
-        trap_err = snmp_send_trap(&eoid,
-                                  SNMP_GENTRAP_ENTERPRISE_SPECIFIC,
-                                  2,
-                                  &soc_varbind);
+        trap_err = snmp_send_trap(&eoid, SNMP_GENTRAP_ENTERPRISE_SPECIFIC, 2, &soc_varbind);
 
 
         if(trap_err == ERR_OK)
@@ -386,35 +301,26 @@ void Read_BMS_Data(void)
     printf("\r\n");
     printf("========================================\r\n");
 
-    printf("Pack Voltage     : %.2f V\r\n",
-           packVoltage / 100.0f);
+    printf("Pack Voltage     : %.2f V\r\n", packVoltage / 100.0f);
 
-    printf("Current          : %.2f A\r\n",
-           current / 100.0f);
+    printf("Current          : %.2f A\r\n", current / 100.0f);
 
     if(current > 0)
     {
         printf("Battery Status   : CHARGING\r\n");
     }
 
-    printf("Remaining Cap    : %.2f Ah\r\n",
-           remainCap / 100.0f);
+    printf("Remaining Cap    : %.2f Ah\r\n", remainCap / 100.0f);
 
-    printf("Nominal Cap      : %.2f Ah\r\n",
-           ratedCap / 100.0f);
+    printf("Nominal Cap      : %.2f Ah\r\n", ratedCap / 100.0f);
 
-    printf("Cycle Count      : %u\r\n",
-           cycles);
+    printf("Cycle Count      : %u\r\n", cycles);
 
-    printf("SOC              : %u %%\r\n",
-           soc);
+    printf("SOC              : %u %%\r\n", soc);
 
-    printf("Checksum         : %02X %02X\r\n",
-           p[len - 3],
-           p[len - 2]);
+    printf("Checksum         : %02X %02X\r\n", p[len - 3], p[len - 2]);
 
-    printf("End Byte         : %02X\r\n",
-           p[len - 1]);
+    printf("End Byte         : %02X\r\n", p[len - 1]);
 
     printf("========================================\r\n");
 }

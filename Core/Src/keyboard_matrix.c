@@ -90,15 +90,11 @@ static uint8_t Keyboard_Matrix_Scan(void)
         /* Set all rows HIGH */
         for (uint8_t r = 0; r < NUM_ROWS; r++)
         {
-            HAL_GPIO_WritePin(row_ports[r],
-                              row_pins[r],
-                              GPIO_PIN_SET);
+            HAL_GPIO_WritePin(row_ports[r], row_pins[r], GPIO_PIN_SET);
         }
 
         /* Activate current row */
-        HAL_GPIO_WritePin(row_ports[row],
-                          row_pins[row],
-                          GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(row_ports[row], row_pins[row], GPIO_PIN_RESET);
 
         /* Small settling delay */
         for (volatile uint32_t i = 0; i < 200; i++);
@@ -106,8 +102,7 @@ static uint8_t Keyboard_Matrix_Scan(void)
         /* Read columns */
         for (uint8_t col = 0; col < NUM_COLS; col++)
         {
-            if (HAL_GPIO_ReadPin(col_ports[col],
-                                 col_pins[col]) == GPIO_PIN_RESET)
+            if (HAL_GPIO_ReadPin(col_ports[col], col_pins[col]) == GPIO_PIN_RESET)
             {
                 keyRow = row;
                 keyCol = col;
@@ -131,32 +126,20 @@ static uint8_t Keyboard_Matrix_Scan(void)
 
 static void Keyboard_SendKey(uint8_t key)
 {
-    keyboardReport[0] = 0x01;
-    keyboardReport[1] = 0x00;
-    keyboardReport[2] = 0x00;
     keyboardReport[3] = key;
 
-    while (((USBD_HID_HandleTypeDef *)
-            hUsbDeviceFS.pClassData)->state == HID_BUSY);
+    while (((USBD_HID_HandleTypeDef *) hUsbDeviceFS.pClassData)->state == HID_BUSY);
 
-    USBD_HID_SendReport(&hUsbDeviceFS,
-                        keyboardReport,
-                        sizeof(keyboardReport));
+    USBD_HID_SendReport(&hUsbDeviceFS, keyboardReport, sizeof(keyboardReport));
 }
 
 static void Keyboard_SendRelease(void)
 {
-    keyboardReport[0] = 0x01;
-    keyboardReport[1] = 0x00;
-    keyboardReport[2] = 0x00;
     keyboardReport[3] = 0x00;
 
-    while (((USBD_HID_HandleTypeDef *)
-            hUsbDeviceFS.pClassData)->state == HID_BUSY);
+    while (((USBD_HID_HandleTypeDef *) hUsbDeviceFS.pClassData)->state == HID_BUSY);
 
-    USBD_HID_SendReport(&hUsbDeviceFS,
-                        keyboardReport,
-                        sizeof(keyboardReport));
+    USBD_HID_SendReport(&hUsbDeviceFS, keyboardReport, sizeof(keyboardReport));
 }
 
 void Keyboard_Matrix_Process(void)
@@ -166,8 +149,7 @@ void Keyboard_Matrix_Process(void)
     /*
      * New key pressed.
      */
-    if (currentKey != 0x00 &&
-        previousKey == 0x00)
+    if (currentKey != 0x00 && previousKey == 0x00)
     {
         Keyboard_SendKey(currentKey);
 
@@ -177,8 +159,7 @@ void Keyboard_Matrix_Process(void)
     /*
      * Key released.
      */
-    if (currentKey == 0x00 &&
-        previousKey != 0x00)
+    if (currentKey == 0x00 && previousKey != 0x00)
     {
         Keyboard_SendRelease();
 

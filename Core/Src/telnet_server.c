@@ -6,6 +6,8 @@
 #include "lwip/ip4_addr.h"
 #include "lwip/timeouts.h"
 #include "ip_persist.h"
+#include "lwip/dhcp.h"
+#include "lwip/apps/snmp.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -28,6 +30,11 @@
 
 extern struct netif gnetif;
 
+static const u32_t telnet_enterprise_oid[] =
+{
+    1, 3, 6, 1, 4, 1, 12345, 2
+};
+
 struct telnet_client
 {
     uint8_t telnet_state;
@@ -46,6 +53,50 @@ struct telnet_client
 
     uint8_t last_was_cr;
 };
+
+static void Send_Login_Failed_Trap(void)
+{
+    struct snmp_obj_id eoid;
+
+    static const u32_t login_failed_oid_array[] =
+    {
+        1, 3, 6, 1, 4, 1, 12345, 2, 1
+    };
+
+    struct snmp_obj_id login_failed_oid;
+
+    static char login_failed_str[] = "Telnet login failed";
+
+    struct snmp_varbind login_failed_varbind;
+
+    /* Enterprise OID */
+    snmp_oid_assign(&eoid, telnet_enterprise_oid, sizeof(telnet_enterprise_oid) / sizeof(telnet_enterprise_oid[0]));
+
+    /* Login failed OID */
+    snmp_oid_assign(&login_failed_oid, login_failed_oid_array, sizeof(login_failed_oid_array) / sizeof(login_failed_oid_array[0]));
+
+    /* Varbind */
+    login_failed_varbind.oid = login_failed_oid;
+    login_failed_varbind.type = SNMP_ASN1_TYPE_OCTET_STRING;
+    login_failed_varbind.value = login_failed_str;
+    login_failed_varbind.value_len = strlen(login_failed_str);
+    login_failed_varbind.next = NULL;
+    login_failed_varbind.prev = NULL;
+
+    /* Send trap */
+    err_t trap_err;
+
+    trap_err = snmp_send_trap(&eoid, SNMP_GENTRAP_ENTERPRISE_SPECIFIC, 1, &login_failed_varbind);
+
+    if (trap_err == ERR_OK)
+    {
+        printf("LOGIN FAILED TRAP SENT\r\n");
+    }
+    else
+    {
+        printf("LOGIN FAILED TRAP FAILED: %d\r\n", trap_err);
+    }
+}
 
 static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 {
@@ -171,6 +222,8 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             }
                             else
                             {
+                            	Send_Login_Failed_Trap();
+
                             	uint8_t echo_restore[] =
                             	{
                             	    TELNET_IAC,
@@ -213,6 +266,50 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                                 tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                             }
+                            else if (strcmp(client->command, "set dhcp") == 0)
+                            {
+                                static const char response[] =
+                                    "\r\nSwitching to DHCP...\r\n"
+                                    "Connection will be lost.\r\n";
+
+                                tcp_write(tpcb,
+                                          response,
+                                          sizeof(response) - 1,
+                                          TCP_WRITE_FLAG_COPY);
+
+                                tcp_output(tpcb);
+
+                                HAL_Delay(200);
+
+                                if (IP_Persist_Save_Mode(IP_MODE_DHCP) != HAL_OK)
+                                {
+                                    static const char error[] =
+                                        "\r\nFailed to save DHCP mode.\r\n\r\n>>> ";
+
+                                    tcp_write(tpcb,
+                                              error,
+                                              sizeof(error) - 1,
+                                              TCP_WRITE_FLAG_COPY);
+
+                                    tcp_output(tpcb);
+                                }
+                                else
+                                {
+                                    ip4_addr_t zero_ip;
+                                    ip4_addr_t zero_mask;
+                                    ip4_addr_t zero_gw;
+
+                                    IP4_ADDR(&zero_ip, 0, 0, 0, 0);
+                                    IP4_ADDR(&zero_mask, 0, 0, 0, 0);
+                                    IP4_ADDR(&zero_gw, 0, 0, 0, 0);
+
+                                    dhcp_stop(&gnetif);
+
+                                    netif_set_addr(&gnetif, &zero_ip, &zero_mask, &zero_gw);
+
+                                    dhcp_start(&gnetif);
+                                }
+                            }
                             else if (strncmp(client->command, "set ip ", 7) == 0)
                             {
                                 ip4_addr_t new_ip;
@@ -227,25 +324,17 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                         static const char error[] =
                                             "\r\nFailed to save IP address.\r\n\r\n> ";
 
-                                        tcp_write(tpcb,
-                                                  error,
-                                                  sizeof(error) - 1,
-                                                  TCP_WRITE_FLAG_COPY);
+                                        tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
 
                                         tcp_output(tpcb);
                                     }
                                     else
                                     {
-                                        snprintf(response,
-                                                 sizeof(response),
-                                                 "\r\nChanging IP address to %s...\r\n"
-                                                 "Connection will be lost.\r\n",
-                                                 ip4addr_ntoa(&new_ip));
+                                        snprintf(response, sizeof(response),
+                                        		"\r\nChanging IP address to %s...\r\n"
+                                        		"Connection will be lost.\r\n", ip4addr_ntoa(&new_ip));
 
-                                        tcp_write(tpcb,
-                                                  response,
-                                                  strlen(response),
-                                                  TCP_WRITE_FLAG_COPY);
+                                        tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
 
                                         tcp_output(tpcb);
 
@@ -256,13 +345,9 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 }
                                 else
                                 {
-                                    static const char error[] =
-                                        "\r\nInvalid IP address.\r\n\r\n> ";
+                                    static const char error[] = "\r\nInvalid IP address.\r\n\r\n> ";
 
-                                    tcp_write(tpcb,
-                                              error,
-                                              sizeof(error) - 1,
-                                              TCP_WRITE_FLAG_COPY);
+                                    tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
                                 }
                             }
                             else if (strcmp(client->command, "logout") == 0)
@@ -342,30 +427,22 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         response[1] = TELNET_WONT;
                         response[2] = TELNET_ECHO;
 
-                        tcp_write(tpcb,
-                                  response,
-                                  sizeof(response),
-                                  TCP_WRITE_FLAG_COPY);
+                        tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
                     }
-                    else if (client->telnet_command == TELNET_WILL ||
-                             client->telnet_command == TELNET_WONT)
+                    else if (client->telnet_command == TELNET_WILL || client->telnet_command == TELNET_WONT)
                     {
                         response[0] = TELNET_IAC;
                         response[1] = TELNET_DONT;
                         response[2] = TELNET_ECHO;
 
-                        tcp_write(tpcb,
-                                  response,
-                                  sizeof(response),
-                                  TCP_WRITE_FLAG_COPY);
+                        tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
                     }
                 }
                 else
                 {
                     response[0] = TELNET_IAC;
 
-                    if (client->telnet_command == TELNET_WILL ||
-                        client->telnet_command == TELNET_WONT)
+                    if (client->telnet_command == TELNET_WILL || client->telnet_command == TELNET_WONT)
                     {
                         response[1] = TELNET_DONT;
                     }
@@ -376,10 +453,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                     response[2] = data[i];
 
-                    tcp_write(tpcb,
-                              response,
-                              sizeof(response),
-                              TCP_WRITE_FLAG_COPY);
+                    tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
                 }
 
                 client->telnet_state = TELNET_STATE_DATA;
@@ -431,10 +505,7 @@ static err_t telnet_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 
     static const char username_prompt[] = "Username: ";
 
-    tcp_write(newpcb,
-              username_prompt,
-              sizeof(username_prompt) - 1,
-              TCP_WRITE_FLAG_COPY);
+    tcp_write(newpcb, username_prompt, sizeof(username_prompt) - 1, TCP_WRITE_FLAG_COPY);
 
     tcp_output(newpcb);
 
