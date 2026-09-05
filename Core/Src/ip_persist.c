@@ -217,21 +217,26 @@ HAL_StatusTypeDef IP_Persist_Save(const ip4_addr_t *ip)
     return IP_Persist_WriteRecord(write_address, ip->addr, IP_MODE_STATIC, sequence);
 }
 
-HAL_StatusTypeDef IP_Persist_Save_Mode(IP_Mode_t mode)
+HAL_StatusTypeDef
+IP_Persist_Save_Mode(const ip4_addr_t *ip,
+                     IP_Mode_t mode)
 {
-    if (!IP_Persist_ModeValid(mode))
+    if (ip == NULL)
     {
         return HAL_ERROR;
     }
 
-    const ip_persist_record_t *latest = IP_Persist_FindLatest();
-
-    if (latest == NULL)
+    if (mode != IP_MODE_STATIC &&
+        mode != IP_MODE_DHCP)
     {
         return HAL_ERROR;
     }
 
-    uint32_t write_address = IP_Persist_FindFreeAddress();
+    const ip_persist_record_t *latest =
+        IP_Persist_FindLatest();
+
+    uint32_t write_address =
+        IP_Persist_FindFreeAddress();
 
     if (write_address == 0)
     {
@@ -246,7 +251,11 @@ HAL_StatusTypeDef IP_Persist_Save_Mode(IP_Mode_t mode)
 
         HAL_FLASH_Unlock();
 
-        HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase, &sector_error);
+        HAL_StatusTypeDef status =
+            HAL_FLASHEx_Erase(
+                &erase,
+                &sector_error
+            );
 
         HAL_FLASH_Lock();
 
@@ -255,12 +264,23 @@ HAL_StatusTypeDef IP_Persist_Save_Mode(IP_Mode_t mode)
             return status;
         }
 
-        write_address = IP_PERSIST_FLASH_ADDRESS;
+        write_address =
+            IP_PERSIST_FLASH_ADDRESS;
     }
 
-    uint32_t sequence = latest->sequence + 1;
+    uint32_t sequence = 1;
 
-    return IP_Persist_WriteRecord(write_address, latest->ip_address, mode, sequence);
+    if (latest != NULL)
+    {
+        sequence = latest->sequence + 1;
+    }
+
+    return IP_Persist_WriteRecord(
+        write_address,
+        ip->addr,
+        mode,
+        sequence
+    );
 }
 
 HAL_StatusTypeDef IP_Persist_Load_Mode(IP_Mode_t *mode)

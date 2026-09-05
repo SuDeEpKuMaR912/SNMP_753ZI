@@ -30,11 +30,6 @@
 
 extern struct netif gnetif;
 
-static const u32_t telnet_enterprise_oid[] =
-{
-    1, 3, 6, 1, 4, 1, 12345, 2
-};
-
 struct telnet_client
 {
     uint8_t telnet_state;
@@ -53,50 +48,6 @@ struct telnet_client
 
     uint8_t last_was_cr;
 };
-
-static void Send_Login_Failed_Trap(void)
-{
-    struct snmp_obj_id eoid;
-
-    static const u32_t login_failed_oid_array[] =
-    {
-        1, 3, 6, 1, 4, 1, 12345, 2, 1
-    };
-
-    struct snmp_obj_id login_failed_oid;
-
-    static char login_failed_str[] = "Telnet login failed";
-
-    struct snmp_varbind login_failed_varbind;
-
-    /* Enterprise OID */
-    snmp_oid_assign(&eoid, telnet_enterprise_oid, sizeof(telnet_enterprise_oid) / sizeof(telnet_enterprise_oid[0]));
-
-    /* Login failed OID */
-    snmp_oid_assign(&login_failed_oid, login_failed_oid_array, sizeof(login_failed_oid_array) / sizeof(login_failed_oid_array[0]));
-
-    /* Varbind */
-    login_failed_varbind.oid = login_failed_oid;
-    login_failed_varbind.type = SNMP_ASN1_TYPE_OCTET_STRING;
-    login_failed_varbind.value = login_failed_str;
-    login_failed_varbind.value_len = strlen(login_failed_str);
-    login_failed_varbind.next = NULL;
-    login_failed_varbind.prev = NULL;
-
-    /* Send trap */
-    err_t trap_err;
-
-    trap_err = snmp_send_trap(&eoid, SNMP_GENTRAP_ENTERPRISE_SPECIFIC, 1, &login_failed_varbind);
-
-    if (trap_err == ERR_OK)
-    {
-        printf("LOGIN FAILED TRAP SENT\r\n");
-    }
-    else
-    {
-        printf("LOGIN FAILED TRAP FAILED: %d\r\n", trap_err);
-    }
-}
 
 static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 {
@@ -222,8 +173,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             }
                             else
                             {
-                            	Send_Login_Failed_Trap();
-
                             	uint8_t echo_restore[] =
                             	{
                             	    TELNET_IAC,
@@ -281,7 +230,10 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                                 HAL_Delay(200);
 
-                                if (IP_Persist_Save_Mode(IP_MODE_DHCP) != HAL_OK)
+                                ip4_addr_t current_ip;
+                                current_ip.addr = gnetif.ip_addr.addr;
+
+                                if (IP_Persist_Save_Mode(&current_ip, IP_MODE_DHCP) != HAL_OK)
                                 {
                                     static const char error[] =
                                         "\r\nFailed to save DHCP mode.\r\n\r\n>>> ";
