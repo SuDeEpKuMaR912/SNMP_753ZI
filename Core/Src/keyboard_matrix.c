@@ -57,9 +57,9 @@ static uint16_t col_pins[NUM_COLS] =
 
 static uint8_t keyboardReport[8] =
 {
-    0x01,   /* Report ID */
-    0x00,   /* Modifier */
-    0x00,   /* Reserved */
+    0x01,
+    0x00,
+    0x00,
     0x00,
     0x00,
     0x00,
@@ -87,19 +87,15 @@ static uint8_t Keyboard_Matrix_Scan(void)
 
     for (uint8_t row = 0; row < NUM_ROWS; row++)
     {
-        /* Set all rows HIGH */
         for (uint8_t r = 0; r < NUM_ROWS; r++)
         {
             HAL_GPIO_WritePin(row_ports[r], row_pins[r], GPIO_PIN_SET);
         }
 
-        /* Activate current row */
         HAL_GPIO_WritePin(row_ports[row], row_pins[row], GPIO_PIN_RESET);
 
-        /* Small settling delay */
         for (volatile uint32_t i = 0; i < 200; i++);
 
-        /* Read columns */
         for (uint8_t col = 0; col < NUM_COLS; col++)
         {
             if (HAL_GPIO_ReadPin(col_ports[col], col_pins[col]) == GPIO_PIN_RESET)
@@ -146,9 +142,7 @@ void Keyboard_Matrix_Process(void)
 {
     currentKey = Keyboard_Matrix_Scan();
 
-    /*
-     * New key pressed.
-     */
+    //Key Pressed
     if (currentKey != 0x00 && previousKey == 0x00)
     {
         Keyboard_SendKey(currentKey);
@@ -156,9 +150,7 @@ void Keyboard_Matrix_Process(void)
         previousKey = currentKey;
     }
 
-    /*
-     * Key released.
-     */
+    //Key Released
     if (currentKey == 0x00 && previousKey != 0x00)
     {
         Keyboard_SendRelease();

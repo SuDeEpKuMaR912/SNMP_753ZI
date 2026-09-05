@@ -57,7 +57,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
     if (p == NULL)
     {
-        /* Client closed the connection */
         if (client != NULL)
         {
             mem_free(client);

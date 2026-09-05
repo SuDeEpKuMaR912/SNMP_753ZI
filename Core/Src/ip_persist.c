@@ -13,10 +13,6 @@ typedef struct
     uint32_t reserved[3];
 } ip_persist_record_t;
 
-
-/*
- * Simple corruption check.
- */
 static uint32_t IP_Persist_Checksum(uint32_t ip)
 {
     return ~ip;
@@ -27,9 +23,6 @@ static uint8_t IP_Persist_ModeValid(uint32_t mode)
     return (mode == IP_MODE_STATIC || mode == IP_MODE_DHCP);
 }
 
-/*
- * Check whether a Flash record is valid.
- */
 static uint8_t IP_Persist_RecordValid(const ip_persist_record_t *record)
 {
     if (record->magic != IP_PERSIST_MAGIC)
@@ -37,8 +30,7 @@ static uint8_t IP_Persist_RecordValid(const ip_persist_record_t *record)
         return 0;
     }
 
-    if (record->ip_inverse !=
-        IP_Persist_Checksum(record->ip_address))
+    if (record->ip_inverse != IP_Persist_Checksum(record->ip_address))
     {
         return 0;
     }
@@ -51,10 +43,6 @@ static uint8_t IP_Persist_RecordValid(const ip_persist_record_t *record)
     return 1;
 }
 
-
-/*
- * Find the newest valid IP record.
- */
 static const ip_persist_record_t * IP_Persist_FindLatest(void)
 {
     const ip_persist_record_t *latest = NULL;
@@ -63,18 +51,11 @@ static const ip_persist_record_t * IP_Persist_FindLatest(void)
     {
         const ip_persist_record_t *record = (const ip_persist_record_t *)(IP_PERSIST_FLASH_ADDRESS + offset);
 
-        /*
-         * Empty Flash.
-         */
         if (record->magic == 0xFFFFFFFFUL)
         {
             break;
         }
 
-        /*
-         * Stop if a corrupted/incomplete record
-         * is encountered.
-         */
         if (!IP_Persist_RecordValid(record))
         {
             break;
@@ -86,10 +67,6 @@ static const ip_persist_record_t * IP_Persist_FindLatest(void)
     return latest;
 }
 
-
-/*
- * Find the first unused Flash record slot.
- */
 static uint32_t IP_Persist_FindFreeAddress(void)
 {
     for (uint32_t offset = 0; offset < IP_PERSIST_SECTOR_SIZE; offset += IP_PERSIST_RECORD_SIZE)
@@ -105,10 +82,6 @@ static uint32_t IP_Persist_FindFreeAddress(void)
     return 0;
 }
 
-
-/*
- * Write one 32-byte Flash record.
- */
 static HAL_StatusTypeDef IP_Persist_WriteRecord(uint32_t address, uint32_t ip_address, IP_Mode_t mode, uint32_t sequence)
 {
     ip_persist_record_t record = {0};
@@ -130,11 +103,6 @@ static HAL_StatusTypeDef IP_Persist_WriteRecord(uint32_t address, uint32_t ip_ad
     return status;
 }
 
-/*
- * Load persistent IP address.
- *
- * If no valid IP exists in Flash, use default_ip.
- */
 HAL_StatusTypeDef IP_Persist_Init(ip4_addr_t *ip, const ip4_addr_t *default_ip)
 {
     if (ip == NULL || default_ip == NULL)
@@ -146,27 +114,16 @@ HAL_StatusTypeDef IP_Persist_Init(ip4_addr_t *ip, const ip4_addr_t *default_ip)
 
     if (latest == NULL)
     {
-        /*
-         * No saved IP exists.
-         * Use firmware default.
-         */
         *ip = *default_ip;
 
         return HAL_OK;
     }
 
-    /*
-     * Load saved IP.
-     */
     ip->addr = latest->ip_address;
 
     return HAL_OK;
 }
 
-
-/*
- * Save a new IP address to Flash.
- */
 HAL_StatusTypeDef IP_Persist_Save(const ip4_addr_t *ip)
 {
     if (ip == NULL)
@@ -178,10 +135,6 @@ HAL_StatusTypeDef IP_Persist_Save(const ip4_addr_t *ip)
 
     uint32_t write_address = IP_Persist_FindFreeAddress();
 
-    /*
-     * Sector full.
-     * Erase Sector 6 and start again.
-     */
     if (write_address == 0)
     {
         FLASH_EraseInitTypeDef erase = {0};
@@ -217,26 +170,21 @@ HAL_StatusTypeDef IP_Persist_Save(const ip4_addr_t *ip)
     return IP_Persist_WriteRecord(write_address, ip->addr, IP_MODE_STATIC, sequence);
 }
 
-HAL_StatusTypeDef
-IP_Persist_Save_Mode(const ip4_addr_t *ip,
-                     IP_Mode_t mode)
+HAL_StatusTypeDef IP_Persist_Save_Mode(const ip4_addr_t *ip, IP_Mode_t mode)
 {
     if (ip == NULL)
     {
         return HAL_ERROR;
     }
 
-    if (mode != IP_MODE_STATIC &&
-        mode != IP_MODE_DHCP)
+    if (mode != IP_MODE_STATIC && mode != IP_MODE_DHCP)
     {
         return HAL_ERROR;
     }
 
-    const ip_persist_record_t *latest =
-        IP_Persist_FindLatest();
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
 
-    uint32_t write_address =
-        IP_Persist_FindFreeAddress();
+    uint32_t write_address = IP_Persist_FindFreeAddress();
 
     if (write_address == 0)
     {
@@ -251,11 +199,7 @@ IP_Persist_Save_Mode(const ip4_addr_t *ip,
 
         HAL_FLASH_Unlock();
 
-        HAL_StatusTypeDef status =
-            HAL_FLASHEx_Erase(
-                &erase,
-                &sector_error
-            );
+        HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase, &sector_error);
 
         HAL_FLASH_Lock();
 
@@ -264,8 +208,7 @@ IP_Persist_Save_Mode(const ip4_addr_t *ip,
             return status;
         }
 
-        write_address =
-            IP_PERSIST_FLASH_ADDRESS;
+        write_address = IP_PERSIST_FLASH_ADDRESS;
     }
 
     uint32_t sequence = 1;
@@ -275,12 +218,7 @@ IP_Persist_Save_Mode(const ip4_addr_t *ip,
         sequence = latest->sequence + 1;
     }
 
-    return IP_Persist_WriteRecord(
-        write_address,
-        ip->addr,
-        mode,
-        sequence
-    );
+    return IP_Persist_WriteRecord(write_address, ip->addr, mode, sequence);
 }
 
 HAL_StatusTypeDef IP_Persist_Load_Mode(IP_Mode_t *mode)
