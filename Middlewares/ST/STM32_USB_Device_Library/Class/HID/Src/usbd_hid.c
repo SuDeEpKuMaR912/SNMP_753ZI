@@ -322,6 +322,30 @@ __ALIGN_BEGIN static uint8_t HID_Keyboard_ReportDesc[HID_KEYBOARD_REPORT_DESC_SI
 	     0x81    ,//bSize: 0x01, bType: Main, bTag: Input
 	     0x01    ,//Input(Constant, Array, Absolute, No Wrap, Linear, Preferred State, No Null Position, Bit Field)
 	     0xC0    ,//bSize: 0x00, bType: Main, bTag: End Collection
+
+	     /* Telephony Control */
+	     0x05, 0x0B,       // Usage Page (Telephony)
+	     0x09, 0x01,       // Usage (Phone)
+	     0xA1, 0x01,       // Collection (Application)
+
+	     0x85, 0x06,       // Report ID (6)
+
+	     0x09, 0x20,       // Usage (Hook Switch)
+	     0x09, 0x26,       // Usage (Drop)
+
+	     0x15, 0x00,       // Logical Minimum (0)
+	     0x25, 0x01,       // Logical Maximum (1)
+
+	     0x75, 0x01,       // Report Size (1)
+	     0x95, 0x02,       // Report Count (2)
+
+	     0x81, 0x02,       // Input (Data, Variable, Absolute)
+
+	     0x95, 0x06,       // Report Count (6)
+	     0x81, 0x01,       // Input (Constant)
+
+	     0xC0,             // End Collection
+
 	     0x06    ,//bSize: 0x02, bType: Global, bTag: Usage Page
 	     0x01,
 	     0xFF ,//Usage Page(Undefined )

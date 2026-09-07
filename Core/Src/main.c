@@ -246,16 +246,15 @@ int main(void)
 
 	  //Print DHCP IP
 	  if (ip_mode == IP_MODE_DHCP)
+	  {
+	      uint32_t current_ip = gnetif.ip_addr.addr;
+
+	      if (current_ip != 0 && current_ip != last_dhcp_ip)
 	      {
-	          uint32_t current_ip = gnetif.ip_addr.addr;
-
-	          if (current_ip != 0 && current_ip != last_dhcp_ip)
-	          {
-	              printf("DHCP IP Address: %s\r\n", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
-
-	              last_dhcp_ip = current_ip;
-	          }
+	          printf("DHCP IP Address: %s\r\n", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
+	          last_dhcp_ip = current_ip;
 	      }
+	  }
 
 	  //BMS
 	  static uint32_t lastBMS = 0;
@@ -466,23 +465,33 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_14, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, Row1_Pin|Row2_Pin|Row3_Pin|Row4_Pin
+                          |GPIO_PIN_1, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9
-                          |GPIO_PIN_10, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(Row5_GPIO_Port, Row5_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_1, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_14, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : Row1_Pin Row2_Pin Row3_Pin Row4_Pin
+                           PE1 */
+  GPIO_InitStruct.Pin = Row1_Pin|Row2_Pin|Row3_Pin|Row4_Pin
+                          |GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
@@ -490,46 +499,46 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB0 PB6 PB7 PB14 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_14;
+  /*Configure GPIO pins : Col1_Pin Col2_Pin Col3_Pin Col4_Pin
+                           Col5_Pin Col6_Pin */
+  GPIO_InitStruct.Pin = Col1_Pin|Col2_Pin|Col3_Pin|Col4_Pin
+                          |Col5_Pin|Col6_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Row5_Pin */
+  GPIO_InitStruct.Pin = Row5_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(Row5_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB0 PB14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_14;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PG0 PG1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(Col1_EXTI_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(Col1_EXTI_IRQn);
 
-  /*Configure GPIO pins : PC6 PC7 PC8 PC9
-                           PC10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9
-                          |GPIO_PIN_10;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  HAL_NVIC_SetPriority(Col2_EXTI_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(Col2_EXTI_IRQn);
 
-  /*Configure GPIO pins : PC11 PC12 */
-  GPIO_InitStruct.Pin = GPIO_PIN_11|GPIO_PIN_12;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  HAL_NVIC_SetPriority(Col3_EXTI_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(Col3_EXTI_IRQn);
 
-  /*Configure GPIO pins : PD0 PD1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+  HAL_NVIC_SetPriority(Col4_EXTI_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(Col4_EXTI_IRQn);
 
-  /*Configure GPIO pin : PE1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+  HAL_NVIC_SetPriority(Col5_EXTI_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(Col5_EXTI_IRQn);
+
+  HAL_NVIC_SetPriority(Col6_EXTI_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(Col6_EXTI_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -537,7 +546,10 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    Keyboard_Matrix_EXTI_Callback(GPIO_Pin);
+}
 /* USER CODE END 4 */
 
  /* MPU Configuration */
