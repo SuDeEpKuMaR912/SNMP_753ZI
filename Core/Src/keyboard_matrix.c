@@ -10,10 +10,10 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 
 static const uint8_t keyMap[NUM_ROWS][NUM_COLS] =
 {
-    {0x3A, 0x3B, 0x42, 0x00, 0x6A, 0x6D},     //f1   f2   f9   CallAns   f15   f18
-    {0x3C, 0x3D, 0x43, 0x00, 0x6B, 0x70},     //f3   f4   f10  CallCut   f16   f21
-    {0x3E, 0x3F, 0x00, 0x00, 0x6C, 0x71},     //f5   f6   V-   Mute      f17   f22
-    {0x40, 0x41, 0x00, 0x00, 0x52, 0x00},     //f7   f8   V+   Spk       Up    ---
+    {0x3A, 0x3B, 0x42, 0xCD, 0x6A, 0x6D},     //f1   f2   f9   CallAns   f15   f18
+    {0x3C, 0x3D, 0x43, 0xCE, 0x6B, 0x70},     //f3   f4   f10  CallCut   f16   f21
+    {0x3E, 0x3F, 0xEA, 0xE2, 0x6C, 0x71},     //f5   f6   V-   Mute      f17   f22
+    {0x40, 0x41, 0xE9, 0x00, 0x52, 0x00},     //f7   f8   V+   MicMute   Up    ---
     {0x44, 0x45, 0x68, 0x69, 0x51, 0x00}      //f11  f12  f13  f14       Down  ---
 };
 
@@ -21,8 +21,8 @@ static GPIO_TypeDef *row_ports[NUM_ROWS] =
 {
     GPIOC,
     GPIOC,
-    GPIOC,
-    GPIOC,
+    GPIOB,
+    GPIOB,
     GPIOC
 };
 
@@ -30,8 +30,8 @@ static uint16_t row_pins[NUM_ROWS] =
 {
     GPIO_PIN_6,
 	GPIO_PIN_7,
-	GPIO_PIN_8,
-	GPIO_PIN_9,
+	GPIO_PIN_6,
+	GPIO_PIN_7,
 	GPIO_PIN_10
 };
 
@@ -63,6 +63,13 @@ static uint8_t keyboardReport[8] =
     0x00,
     0x00,
     0x00,
+    0x00,
+    0x00
+};
+
+static uint8_t consumerReport[3] =
+{
+    0x02,
     0x00,
     0x00
 };
@@ -120,6 +127,25 @@ static uint8_t Keyboard_Matrix_Scan(void)
     return keyMap[keyRow][keyCol];
 }
 
+static void Keyboard_SendConsumer(uint16_t usage)
+{
+    consumerReport[0] = 0x02;
+    consumerReport[1] = usage & 0xFF;
+    consumerReport[2] = (usage >> 8) & 0xFF;
+
+    while (((USBD_HID_HandleTypeDef *) hUsbDeviceFS.pClassData)->state == HID_BUSY);
+
+    USBD_HID_SendReport(&hUsbDeviceFS, consumerReport, sizeof(consumerReport));
+
+    /* Release consumer key */
+    consumerReport[1] = 0x00;
+    consumerReport[2] = 0x00;
+
+    while (((USBD_HID_HandleTypeDef *) hUsbDeviceFS.pClassData)->state == HID_BUSY);
+
+    USBD_HID_SendReport(&hUsbDeviceFS, consumerReport, sizeof(consumerReport));
+}
+
 static void Keyboard_SendKey(uint8_t key)
 {
     keyboardReport[3] = key;
@@ -142,19 +168,23 @@ void Keyboard_Matrix_Process(void)
 {
     currentKey = Keyboard_Matrix_Scan();
 
-    //Key Pressed
     if (currentKey != 0x00 && previousKey == 0x00)
     {
-        Keyboard_SendKey(currentKey);
+        if (currentKey == 0xEA || currentKey == 0xE2 || currentKey == 0xE9 || currentKey == 0xCD || currentKey == 0xCE)
+        {
+            Keyboard_SendConsumer(currentKey);
+        }
+        else
+        {
+            Keyboard_SendKey(currentKey);
+        }
 
         previousKey = currentKey;
     }
 
-    //Key Released
     if (currentKey == 0x00 && previousKey != 0x00)
     {
         Keyboard_SendRelease();
-
         previousKey = 0x00;
     }
 }
