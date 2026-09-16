@@ -63,6 +63,8 @@
 
 RNG_HandleTypeDef hrng;
 
+TIM_HandleTypeDef htim6;
+
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
@@ -82,6 +84,7 @@ static void MX_GPIO_Init(void);
 static void MX_RNG_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 int _write(int file, char *ptr, int len)
 {
@@ -166,6 +169,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_USB_DEVICE_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
   ip_addr_t ipaddr, netmask, gw;
   ip4_addr_t default_ip;
@@ -230,6 +234,8 @@ int main(void)
 
   //keyboard hid init
   Keyboard_Matrix_Init();
+
+  HAL_TIM_Base_Start_IT(&htim6);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -353,6 +359,44 @@ static void MX_RNG_Init(void)
   /* USER CODE BEGIN RNG_Init 2 */
 
   /* USER CODE END RNG_Init 2 */
+
+}
+
+/**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 23999;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 65535;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
 
 }
 
@@ -503,7 +547,7 @@ static void MX_GPIO_Init(void)
                            Col5_Pin Col6_Pin */
   GPIO_InitStruct.Pin = Col1_Pin|Col2_Pin|Col3_Pin|Col4_Pin
                           |Col5_Pin|Col6_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
@@ -521,34 +565,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(Col1_EXTI_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(Col1_EXTI_IRQn);
-
-  HAL_NVIC_SetPriority(Col2_EXTI_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(Col2_EXTI_IRQn);
-
-  HAL_NVIC_SetPriority(Col3_EXTI_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(Col3_EXTI_IRQn);
-
-  HAL_NVIC_SetPriority(Col4_EXTI_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(Col4_EXTI_IRQn);
-
-  HAL_NVIC_SetPriority(Col5_EXTI_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(Col5_EXTI_IRQn);
-
-  HAL_NVIC_SetPriority(Col6_EXTI_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(Col6_EXTI_IRQn);
-
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-    Keyboard_Matrix_EXTI_Callback(GPIO_Pin);
+    if (htim->Instance == TIM6)
+    {
+        Keyboard_Matrix_TimerCallback();
+    }
 }
 /* USER CODE END 4 */
 

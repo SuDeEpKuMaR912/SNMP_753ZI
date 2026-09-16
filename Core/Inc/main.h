@@ -67,22 +67,16 @@ void Error_Handler(void);
 #define Row4_GPIO_Port GPIOE
 #define Col1_Pin GPIO_PIN_0
 #define Col1_GPIO_Port GPIOF
-#define Col1_EXTI_IRQn EXTI0_IRQn
 #define Col2_Pin GPIO_PIN_1
 #define Col2_GPIO_Port GPIOF
-#define Col2_EXTI_IRQn EXTI1_IRQn
 #define Col3_Pin GPIO_PIN_2
 #define Col3_GPIO_Port GPIOF
-#define Col3_EXTI_IRQn EXTI2_IRQn
 #define Col4_Pin GPIO_PIN_3
 #define Col4_GPIO_Port GPIOF
-#define Col4_EXTI_IRQn EXTI3_IRQn
 #define Col5_Pin GPIO_PIN_4
 #define Col5_GPIO_Port GPIOF
-#define Col5_EXTI_IRQn EXTI4_IRQn
 #define Col6_Pin GPIO_PIN_5
 #define Col6_GPIO_Port GPIOF
-#define Col6_EXTI_IRQn EXTI9_5_IRQn
 #define Row5_Pin GPIO_PIN_10
 #define Row5_GPIO_Port GPIOF
 

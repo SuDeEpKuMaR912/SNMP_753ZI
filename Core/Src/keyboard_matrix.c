@@ -80,9 +80,11 @@ static uint8_t telephonyReport[2] =
     0x00
 };
 
-static volatile uint8_t keyboard_irq_flag = 0;
 static uint8_t currentKey = 0x00;
 static uint8_t previousKey = 0x00;
+static volatile uint8_t scanKey = 0x00;
+static volatile uint8_t scanReady = 0;
+static volatile uint8_t active_row = 0;
 
 void Keyboard_Matrix_Init(void)
 {
@@ -96,42 +98,15 @@ void Keyboard_Matrix_Init(void)
 
 static uint8_t Keyboard_Matrix_Scan(void)
 {
-    uint8_t keyRow = 0xFF;
-    uint8_t keyCol = 0xFF;
-
-    for (uint8_t row = 0; row < NUM_ROWS; row++)
+    for (uint8_t col = 0; col < NUM_COLS; col++)
     {
-        for (uint8_t r = 0; r < NUM_ROWS; r++)
+        if (HAL_GPIO_ReadPin(col_ports[col], col_pins[col]) == GPIO_PIN_RESET)
         {
-            HAL_GPIO_WritePin(row_ports[r], row_pins[r], GPIO_PIN_SET);
-        }
-
-        HAL_GPIO_WritePin(row_ports[row], row_pins[row], GPIO_PIN_RESET);
-
-        for (volatile uint32_t i = 0; i < 200; i++);
-
-        for (uint8_t col = 0; col < NUM_COLS; col++)
-        {
-            if (HAL_GPIO_ReadPin(col_ports[col], col_pins[col]) == GPIO_PIN_RESET)
-            {
-                keyRow = row;
-                keyCol = col;
-                break;
-            }
-        }
-
-        if (keyRow != 0xFF)
-        {
-            break;
+            return keyMap[active_row][col];
         }
     }
 
-    if (keyRow == 0xFF)
-    {
-        return 0x00;
-    }
-
-    return keyMap[keyRow][keyCol];
+    return 0x00;
 }
 
 static void Keyboard_SendConsumer(uint16_t usage)
@@ -208,7 +183,14 @@ static void Keyboard_SendRelease(void)
 
 void Keyboard_Matrix_Process(void)
 {
-    currentKey = Keyboard_Matrix_Scan();
+	if (!scanReady)
+	{
+	    return;
+	}
+
+	scanReady = 0;
+
+	currentKey = scanKey;
 
     if (currentKey != 0x00 && previousKey == 0x00)
     {
@@ -235,11 +217,26 @@ void Keyboard_Matrix_Process(void)
     }
 }
 
-void Keyboard_Matrix_EXTI_Callback(uint16_t GPIO_Pin)
+void Keyboard_Matrix_TimerCallback(void)
 {
-    if (GPIO_Pin == GPIO_PIN_0 || GPIO_Pin == GPIO_PIN_1 || GPIO_Pin == GPIO_PIN_2 ||
-    	GPIO_Pin == GPIO_PIN_3 || GPIO_Pin == GPIO_PIN_4 || GPIO_Pin == GPIO_PIN_5)
+    /* Set all rows HIGH */
+    for (uint8_t row = 0; row < NUM_ROWS; row++)
     {
-        keyboard_irq_flag = 1;
+        HAL_GPIO_WritePin(row_ports[row], row_pins[row], GPIO_PIN_SET);
+    }
+
+    /* Activate current row */
+    HAL_GPIO_WritePin(row_ports[active_row], row_pins[active_row], GPIO_PIN_RESET);
+
+    /* Scan current row */
+    scanKey = Keyboard_Matrix_Scan();
+
+    /* Move to next row */
+    active_row++;
+
+    if (active_row >= NUM_ROWS)
+    {
+        active_row = 0;
+        scanReady = 1;
     }
 }
