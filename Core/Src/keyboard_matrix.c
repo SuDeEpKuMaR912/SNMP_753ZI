@@ -13,7 +13,7 @@ static const uint8_t keyMap[NUM_ROWS][NUM_COLS] =
     {0x3A, 0x3B, 0x42, 0x20, 0x6A, 0x6D},     //f1   f2   f9   CallAns   f15   f18
     {0x3C, 0x3D, 0x43, 0x26, 0x6B, 0x70},     //f3   f4   f10  CallCut   f16   f21
     {0x3E, 0x3F, 0xEA, 0xE2, 0x6C, 0x71},     //f5   f6   V-   Mute      f17   f22
-    {0x40, 0x41, 0xE9, 0x00, 0x52, 0x00},     //f7   f8   V+   MicMute   Up    ---
+    {0x40, 0x41, 0xE9, 0x2F, 0x52, 0x00},     //f7   f8   V+   MicMute   Up    ---
     {0x44, 0x45, 0x68, 0x69, 0x51, 0x00}      //f11  f12  f13  f14       Down  ---
 };
 
@@ -92,8 +92,15 @@ void Keyboard_Matrix_Init(void)
 
     for (i = 0; i < NUM_ROWS; i++)
     {
-        HAL_GPIO_WritePin(row_ports[i], row_pins[i], GPIO_PIN_SET);
+        HAL_GPIO_WritePin(row_ports[i],
+                          row_pins[i],
+                          GPIO_PIN_SET);
     }
+
+    active_row = 0;
+    scanKey = 0x00;
+    scanReady = 0;
+    previousKey = 0x00;
 }
 
 static uint8_t Keyboard_Matrix_Scan(void)
@@ -133,6 +140,11 @@ static void Keyboard_SendTelephony(uint8_t usage)
     {
         // Drop - Call Cut
         telephonyReport[1] = 0x02;
+    }
+    else if (usage == 0x2F)
+    {
+        // Phone Mute - Mic Mute
+        telephonyReport[1] = 0x04;
     }
     else
     {
@@ -225,15 +237,28 @@ void Keyboard_Matrix_TimerCallback(void)
         HAL_GPIO_WritePin(row_ports[row], row_pins[row], GPIO_PIN_SET);
     }
 
+    /* Start a new complete scan */
+    if (active_row == 0)
+    {
+        scanKey = 0x00;
+    }
+
     /* Activate current row */
     HAL_GPIO_WritePin(row_ports[active_row], row_pins[active_row], GPIO_PIN_RESET);
 
     /* Scan current row */
-    scanKey = Keyboard_Matrix_Scan();
+    uint8_t key = Keyboard_Matrix_Scan();
+
+    /* Keep the detected key until the complete matrix is scanned */
+    if (scanKey == 0x00 && key != 0x00)
+    {
+        scanKey = key;
+    }
 
     /* Move to next row */
     active_row++;
 
+    /* Complete 5-row scan */
     if (active_row >= NUM_ROWS)
     {
         active_row = 0;

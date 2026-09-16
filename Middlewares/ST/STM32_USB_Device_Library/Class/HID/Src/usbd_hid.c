@@ -332,16 +332,17 @@ __ALIGN_BEGIN static uint8_t HID_Keyboard_ReportDesc[HID_KEYBOARD_REPORT_DESC_SI
 
 	     0x09, 0x20,       // Usage (Hook Switch)
 	     0x09, 0x26,       // Usage (Drop)
+		 0x09, 0x2F,
 
 	     0x15, 0x00,       // Logical Minimum (0)
 	     0x25, 0x01,       // Logical Maximum (1)
 
 	     0x75, 0x01,       // Report Size (1)
-	     0x95, 0x02,       // Report Count (2)
+	     0x95, 0x03,       // Report Count (3)
 
 	     0x81, 0x02,       // Input (Data, Variable, Absolute)
 
-	     0x95, 0x06,       // Report Count (6)
+	     0x95, 0x05,       // Report Count (6)
 	     0x81, 0x01,       // Input (Constant)
 
 	     0xC0,             // End Collection
