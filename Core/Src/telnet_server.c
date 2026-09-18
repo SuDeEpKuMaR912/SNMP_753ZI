@@ -53,6 +53,32 @@ struct telnet_client
     uint8_t last_was_cr;
 };
 
+static void get_default_network_config(const ip4_addr_t *ip, ip4_addr_t *mask, ip4_addr_t *gateway)
+{
+    uint8_t first_octet = ip4_addr1(ip);
+
+    //Class A 1-126
+    if (first_octet >= 1 && first_octet <= 126)
+    {
+        IP4_ADDR(mask, 255, 0, 0, 0);
+        IP4_ADDR(gateway, first_octet, 255, 255, 254);
+    }
+
+    // Class B 128-191
+    else if (first_octet >= 128 && first_octet <= 191)
+    {
+        IP4_ADDR(mask, 255, 255, 0, 0);
+        IP4_ADDR(gateway, first_octet, ip4_addr2(ip), 255, 254);
+    }
+
+    // Class C 192-223
+    else if (first_octet >= 192 && first_octet <= 223)
+    {
+        IP4_ADDR(mask, 255, 255, 255, 0);
+        IP4_ADDR(gateway, first_octet, ip4_addr2(ip), ip4_addr3(ip), 254);
+    }
+}
+
 static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 {
     struct telnet_client *client = (struct telnet_client *)arg;
@@ -130,11 +156,8 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             };
 
                             tcp_write(tpcb, echo_off, sizeof(echo_off), TCP_WRITE_FLAG_COPY);
-
                             tcp_write(tpcb, password_prompt, sizeof(password_prompt) - 1, TCP_WRITE_FLAG_COPY);
-
                             tcp_output(tpcb);
-
                             client->login_state = TELNET_LOGIN_PASSWORD;
                         }
                         else if (client->username_len < sizeof(client->username) - 1)
@@ -188,9 +211,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 client->password_len = 0;
 
                                 tcp_write(tpcb, echo_restore, sizeof(echo_restore), TCP_WRITE_FLAG_COPY);
-
                                 tcp_write(tpcb, login_failed, sizeof(login_failed) - 1, TCP_WRITE_FLAG_COPY);
-
                                 client->login_state = TELNET_LOGIN_USERNAME;
                             }
 
@@ -280,56 +301,95 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 char ip_string[16];
                                 char mask_string[16];
                                 char gw_string[16];
+                                char extra_string[16];
 
                                 int parsed;
 
-                                parsed = sscanf(&client->command[10],
-                                                "%15s %15s %15s",
-                                                ip_string,
-                                                mask_string,
-                                                gw_string);
+                                //1 value  = IP, 2 values = IP + MASK, 3 values = IP + MASK + GATEWAY, 4 values = invalid command
+                                parsed = sscanf(&client->command[10], "%15s %15s %15s %15s", ip_string, mask_string, gw_string, extra_string);
 
-                                if (parsed == 3 &&
-                                    ip4addr_aton(ip_string, &new_ip) &&
-                                    ip4addr_aton(mask_string, &new_mask) &&
-                                    ip4addr_aton(gw_string, &new_gw))
+                                //IP is mandatory
+                                if (parsed >= 1 && parsed <= 3 && ip4addr_aton(ip_string, &new_ip))
                                 {
-                                    char response[160];
+                                   //generate default mask and gateway
+                                    if (parsed == 1)
+                                    {
+                                        get_default_network_config(&new_ip, &new_mask, &new_gw);
+                                    }
 
-                                    /*
-                                     * Persist IP address
-                                     */
+                                    // IP + MASK supplied: use supplied mask and generate gateway.
+                                    else if (parsed == 2)
+                                    {
+                                        if (!ip4addr_aton(mask_string, &new_mask))
+                                        {
+                                            static const char error[] =
+                                                "\r\nInvalid subnet mask.\r\n"
+                                                "\r\n>>> ";
+
+                                            tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
+                                            tcp_output(tpcb);
+                                            goto setstatic_done;
+                                        }
+
+                                        //Gateway is generated from the supplied subnet
+                                        uint32_t network;
+                                        uint32_t broadcast;
+                                        uint32_t mask;
+                                        uint32_t gateway;
+
+                                        mask = new_mask.addr;
+                                        network = new_ip.addr & mask;
+                                        broadcast = network | ~mask;
+
+                                        gateway = broadcast - 1;
+                                        new_gw.addr = gateway;
+                                    }
+
+                                    //IP + MASK + GATEWAY supplied: use all supplied values.
+                                    else
+                                    {
+                                        if (!ip4addr_aton(mask_string, &new_mask) || !ip4addr_aton(gw_string, &new_gw))
+                                        {
+                                            static const char error[] =
+                                                "\r\nInvalid subnet mask or gateway.\r\n"
+                                                "\r\n>>> ";
+
+                                            tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
+                                            tcp_output(tpcb);
+                                            goto setstatic_done;
+                                        }
+                                    }
+
+                                    // Persist IP address
                                     if (IP_Persist_Save(&new_ip) != HAL_OK)
                                     {
                                         static const char error[] =
-                                            "\r\nFailed to save IP address.\r\n\r\n>>> ";
+                                            "\r\nFailed to save IP address.\r\n"
+                                            "\r\n>>> ";
 
-                                        tcp_write(tpcb,
-                                                  error,
-                                                  sizeof(error) - 1,
-                                                  TCP_WRITE_FLAG_COPY);
-
+                                        tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
                                         tcp_output(tpcb);
                                     }
                                     else
                                     {
-                                        snprintf(response,
-                                                 sizeof(response),
+                                        char ip_str[16];
+                                        char mask_str[16];
+                                        char gw_str[16];
+                                        char response[192];
+
+                                        ip4addr_ntoa_r(&new_ip, ip_str, sizeof(ip_str));
+                                        ip4addr_ntoa_r(&new_mask, mask_str, sizeof(mask_str));
+                                        ip4addr_ntoa_r(&new_gw, gw_str, sizeof(gw_str));
+
+                                        snprintf(response, sizeof(response),
                                                  "\r\n"
                                                  "Changing network configuration...\r\n"
                                                  "IP Address: %s\r\n"
                                                  "Netmask:    %s\r\n"
                                                  "Gateway:    %s\r\n"
-                                                 "Connection will be lost.\r\n",
-                                                 ip4addr_ntoa(&new_ip),
-                                                 ip4addr_ntoa(&new_mask),
-                                                 ip4addr_ntoa(&new_gw));
+                                                 "Connection will be lost.\r\n", ip_str, mask_str, gw_str);
 
-                                        tcp_write(tpcb,
-                                                  response,
-                                                  strlen(response),
-                                                  TCP_WRITE_FLAG_COPY);
-
+                                        tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                                         tcp_output(tpcb);
                                         HAL_Delay(200);
                                         dhcp_stop(&gnetif);
@@ -338,10 +398,21 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 }
                                 else
                                 {
-                                	static const char response[]= "Failed to change IP\r\n\r\n>>> ";
-                                	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
-                                	tcp_output(tpcb);
+                                    static const char error[] =
+                                        "\r\nInvalid network configuration.\r\n"
+                                        "\r\n"
+                                        "Usage:\r\n"
+                                        "setstatic <IP>\r\n"
+                                        "setstatic <IP> <MASK>\r\n"
+                                        "setstatic <IP> <MASK> <GATEWAY>\r\n"
+                                        "\r\n>>> ";
+
+                                    tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
+                                    tcp_output(tpcb);
                                 }
+
+                            setstatic_done:
+                                ;
                             }
                             else if (strcmp(client->command, "getmac") == 0)
                             {
@@ -398,24 +469,9 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             {
                             	static const char response[] =
                             			"\r\nAvailable Commands:\r\nip_a\r\ngetmac\r\nsetstatic\r\ndhcp\r\nset lcgateext\r\nget lcgateext\r\n"
-                            			"set ippaext\r\nget ippaext\r\nlcgate status\r\nlogout\r\n\r\n>>> ";
+                            			"set ippaext\r\nget ippaext\r\nlogout\r\n\r\n>>> ";
                             	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                             	tcp_output(tpcb);
-                            }
-                            else if (strncmp(client->command, "lcgate status", 13) == 0)
-                            {
-                            	if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6) == GPIO_PIN_SET)
-                            	{
-                            		static const char response[] = "\r\nLC Gate ON.\r\n\r\n>>> ";
-                                	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
-                                	tcp_output(tpcb);
-                            	}
-                            	else
-                            	{
-                            		static const char response[] = "\r\nLC Gate OFF.\r\n\r\n>>> ";
-                                	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
-                                	tcp_output(tpcb);
-                            	}
                             }
                             else if (strcmp(client->command, "logout") == 0)
                             {
@@ -570,7 +626,6 @@ static err_t telnet_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
     static const char username_prompt[] = "Username: ";
 
     tcp_write(newpcb, username_prompt, sizeof(username_prompt) - 1, TCP_WRITE_FLAG_COPY);
-
     tcp_output(newpcb);
 
     tcp_arg(newpcb, client);

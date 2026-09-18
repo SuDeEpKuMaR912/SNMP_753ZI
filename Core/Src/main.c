@@ -249,6 +249,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  //GPIO I/P control
+	  GPIO_Control_Process();
+
 	  MX_LWIP_Process();
 
 	  //KEYBOARD HID
@@ -265,9 +268,6 @@ int main(void)
 	          last_dhcp_ip = current_ip;
 	      }
 	  }
-
-	  //GPIO I/P control
-	  GPIO_Control_Process();
 
 	  //BMS
 	  static uint32_t lastBMS = 0;
