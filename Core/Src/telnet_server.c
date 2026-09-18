@@ -30,6 +30,9 @@
 
 extern struct netif gnetif;
 
+static uint32_t lcgateext = 0;
+static uint32_t ippaext = 0;
+
 struct telnet_client
 {
     uint8_t telnet_state;
@@ -144,16 +147,14 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         {
                             client->password[client->password_len] = '\0';
 
-                            if (strcmp(client->username, "sudeepk") == 0 && strcmp(client->password, "coral@123") == 0)
+                            if (strcmp(client->username, "admin") == 0 && strcmp(client->password, "admin") == 0)
                             {
                             	static const char welcome_screen[] =
                             	    "\033[2J\033[H"
                             	    "\r\n"
                             	    "================================\r\n"
-                            	    "       CORAL TELNET SERVER\r\n"
+                            	    " LC GATE COMMAND LINE INTERFACE\r\n"
                             	    "================================\r\n"
-                            	    "\r\n"
-                            	    "Welcome, sudeepk!\r\n"
                             	    "\r\n"
                             	    ">>> ";
 
@@ -205,28 +206,44 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         if (data[i] == '\r' || data[i] == '\n')
                         {
                             client->command[client->command_len] = '\0';
-
-                            if (strcmp(client->command, "show ip") == 0)
+                            if (strcmp(client->command, "ip_a") == 0)
                             {
-                                char response[64];
+                                char response[256];
 
-                                snprintf(response, sizeof(response), "\r\nIP Address: %s\r\n\r\n>>> ", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
+                                char ip_str[16];
+                                char mask_str[16];
+                                char gw_str[16];
+
+                                uint32_t uid0;
+                                uint32_t uid1;
+                                uint32_t uid2;
+
+                                ip4addr_ntoa_r(netif_ip4_addr(&gnetif), ip_str, sizeof(ip_str));
+                                ip4addr_ntoa_r(netif_ip4_netmask(&gnetif), mask_str, sizeof(mask_str));
+                                ip4addr_ntoa_r(netif_ip4_gw(&gnetif), gw_str, sizeof(gw_str));
+
+                                uid0 = HAL_GetUIDw0();
+                                uid1 = HAL_GetUIDw1();
+                                uid2 = HAL_GetUIDw2();
+
+                                snprintf(response, sizeof(response),
+                                         "\r\n"
+                                         "IP Address: %s\r\n"
+                                         "Netmask:    %s\r\n"
+                                         "Gateway:    %s\r\n"
+                                         "STM UID:    %08lX-%08lX-%08lX\r\n"
+                                         "\r\n>>> ", ip_str, mask_str, gw_str, (unsigned long)uid0, (unsigned long)uid1, (unsigned long)uid2);
 
                                 tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                             }
-                            else if (strcmp(client->command, "set dhcp") == 0)
+                            else if (strcmp(client->command, "dhcp") == 0)
                             {
                                 static const char response[] =
                                     "\r\nSwitching to DHCP...\r\n"
                                     "Connection will be lost.\r\n";
 
-                                tcp_write(tpcb,
-                                          response,
-                                          sizeof(response) - 1,
-                                          TCP_WRITE_FLAG_COPY);
-
+                                tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                                 tcp_output(tpcb);
-
                                 HAL_Delay(200);
 
                                 ip4_addr_t current_ip;
@@ -255,51 +272,192 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     IP4_ADDR(&zero_gw, 0, 0, 0, 0);
 
                                     dhcp_stop(&gnetif);
-
                                     netif_set_addr(&gnetif, &zero_ip, &zero_mask, &zero_gw);
-
                                     dhcp_start(&gnetif);
                                 }
                             }
-                            else if (strncmp(client->command, "set ip ", 7) == 0)
+                            else if (strncmp(client->command, "setstatic ", 10) == 0)
                             {
                                 ip4_addr_t new_ip;
-                                const char *ip_string = &client->command[7];
+                                ip4_addr_t new_mask;
+                                ip4_addr_t new_gw;
 
-                                if (ip4addr_aton(ip_string, &new_ip))
+                                char ip_string[16];
+                                char mask_string[16];
+                                char gw_string[16];
+
+                                int parsed;
+
+                                parsed = sscanf(&client->command[10],
+                                                "%15s %15s %15s",
+                                                ip_string,
+                                                mask_string,
+                                                gw_string);
+
+                                if (parsed == 3 &&
+                                    ip4addr_aton(ip_string, &new_ip) &&
+                                    ip4addr_aton(mask_string, &new_mask) &&
+                                    ip4addr_aton(gw_string, &new_gw))
                                 {
-                                    char response[96];
+                                    char response[160];
 
+                                    /*
+                                     * Persist IP address
+                                     */
                                     if (IP_Persist_Save(&new_ip) != HAL_OK)
                                     {
                                         static const char error[] =
-                                            "\r\nFailed to save IP address.\r\n\r\n> ";
+                                            "\r\nFailed to save IP address.\r\n\r\n>>> ";
 
-                                        tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
+                                        tcp_write(tpcb,
+                                                  error,
+                                                  sizeof(error) - 1,
+                                                  TCP_WRITE_FLAG_COPY);
 
                                         tcp_output(tpcb);
                                     }
                                     else
                                     {
-                                        snprintf(response, sizeof(response),
-                                        		"\r\nChanging IP address to %s...\r\n"
-                                        		"Connection will be lost.\r\n", ip4addr_ntoa(&new_ip));
+                                        snprintf(response,
+                                                 sizeof(response),
+                                                 "\r\n"
+                                                 "Changing network configuration...\r\n"
+                                                 "IP Address: %s\r\n"
+                                                 "Netmask:    %s\r\n"
+                                                 "Gateway:    %s\r\n"
+                                                 "Connection will be lost.\r\n",
+                                                 ip4addr_ntoa(&new_ip),
+                                                 ip4addr_ntoa(&new_mask),
+                                                 ip4addr_ntoa(&new_gw));
 
-                                        tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
+                                        tcp_write(tpcb,
+                                                  response,
+                                                  strlen(response),
+                                                  TCP_WRITE_FLAG_COPY);
 
                                         tcp_output(tpcb);
 
                                         HAL_Delay(200);
 
-                                        netif_set_ipaddr(&gnetif, &new_ip);
+                                        dhcp_stop(&gnetif);
+
+                                        netif_set_addr(&gnetif,
+                                                       &new_ip,
+                                                       &new_mask,
+                                                       &new_gw);
                                     }
                                 }
                                 else
                                 {
-                                    static const char error[] = "\r\nInvalid IP address.\r\n\r\n> ";
-
-                                    tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
+                                	static const char response[]= "Failed to change IP\r\n\r\n>>> ";
+                                	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
+                                	tcp_output(tpcb);
                                 }
+                            }
+                            else if (strcmp(client->command, "getmac") == 0)
+                            {
+                                char response[128];
+
+                                snprintf(response,
+                                         sizeof(response),
+                                         "\r\n"
+                                         "MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\r\n"
+                                         "\r\n>>> ",
+                                         gnetif.hwaddr[0],
+                                         gnetif.hwaddr[1],
+                                         gnetif.hwaddr[2],
+                                         gnetif.hwaddr[3],
+                                         gnetif.hwaddr[4],
+                                         gnetif.hwaddr[5]);
+
+                                tcp_write(tpcb,
+                                          response,
+                                          strlen(response),
+                                          TCP_WRITE_FLAG_COPY);
+                            }
+                            else if (strncmp(client->command, "set lcgateext ", 14) == 0)
+                            {
+                                uint32_t value;
+                                static const char response[] = "\r\nLC Gate Ext set successfully.\r\n\r\n>>> ";
+
+                                if (sscanf(&client->command[14], "%lu", &value) == 1)
+                                {
+                                    lcgateext = value;
+                                    tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
+                                    tcp_output(tpcb);
+
+                                }
+                            }
+                            else if (strcmp(client->command, "get lcgateext") == 0)
+                            {
+                                char response[96];
+
+                                snprintf(response,
+                                         sizeof(response),
+                                         "\r\nLC Gate Ext: %lu\r\n\r\n>>> ",
+                                         (unsigned long)lcgateext);
+
+                                tcp_write(tpcb,
+                                          response,
+                                          strlen(response),
+                                          TCP_WRITE_FLAG_COPY);
+                            }
+                            else if (strncmp(client->command, "set ippaext ", 12) == 0)
+                            {
+                            	uint32_t value;
+                                static const char response[] = "\r\nIPPA Ext set successfully.\r\n\r\n>>> ";
+
+                            	if (sscanf(&client->command[12], "%lu", &value) == 1)
+                            	{
+                            		ippaext = value;
+                            		tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
+                            	    tcp_output(tpcb);
+                            	}
+                            }
+                            else if (strcmp(client->command, "get ippaext") == 0)
+                            {
+                            	char response[96];
+
+                            	snprintf(response, sizeof(response), "\r\nIPPA Ext: %lu\r\n\r\n>>> ", (unsigned long)ippaext);
+                            	tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
+                            }
+                            else if (strcmp(client->command, "gpio on") == 0)
+                            {
+                                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+
+                                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+                                HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+
+                                static const char response[] =
+                                    "\r\nGPIO ON\r\n"
+                                    "PB6 = HIGH\r\n"
+                                    "Green LED = ON\r\n"
+                                    "Red LED = OFF\r\n"
+                                    "\r\n>>> ";
+
+                                tcp_write(tpcb,
+                                          response,
+                                          sizeof(response) - 1,
+                                          TCP_WRITE_FLAG_COPY);
+                            }
+                            else if (strcmp(client->command, "gpio off") == 0)
+                            {
+                                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
+
+                                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+                                HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
+
+                                static const char response[] =
+                                    "\r\nGPIO OFF\r\n"
+                                    "PB6 = LOW\r\n"
+                                    "Green LED = OFF\r\n"
+                                    "Red LED = ON\r\n"
+                                    "\r\n>>> ";
+
+                                tcp_write(tpcb,
+                                          response,
+                                          sizeof(response) - 1,
+                                          TCP_WRITE_FLAG_COPY);
                             }
                             else if (strcmp(client->command, "logout") == 0)
                             {
