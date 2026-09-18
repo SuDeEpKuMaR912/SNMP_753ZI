@@ -421,43 +421,13 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             	snprintf(response, sizeof(response), "\r\nIPPA Ext: %lu\r\n\r\n>>> ", (unsigned long)ippaext);
                             	tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                             }
-                            else if (strcmp(client->command, "gpio on") == 0)
+                            else if (strcmp(client->command, "help") == 0)
                             {
-                                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
-
-                                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-                                HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
-
-                                static const char response[] =
-                                    "\r\nGPIO ON\r\n"
-                                    "PB6 = HIGH\r\n"
-                                    "Green LED = ON\r\n"
-                                    "Red LED = OFF\r\n"
-                                    "\r\n>>> ";
-
-                                tcp_write(tpcb,
-                                          response,
-                                          sizeof(response) - 1,
-                                          TCP_WRITE_FLAG_COPY);
-                            }
-                            else if (strcmp(client->command, "gpio off") == 0)
-                            {
-                                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
-
-                                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-                                HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
-
-                                static const char response[] =
-                                    "\r\nGPIO OFF\r\n"
-                                    "PB6 = LOW\r\n"
-                                    "Green LED = OFF\r\n"
-                                    "Red LED = ON\r\n"
-                                    "\r\n>>> ";
-
-                                tcp_write(tpcb,
-                                          response,
-                                          sizeof(response) - 1,
-                                          TCP_WRITE_FLAG_COPY);
+                            	static const char response[] =
+                            			"\r\nAvailable Commands:\r\nip_a\r\ngetmac\r\nsetstatic\r\ndhcp\r\nset lcgateext\r\nget lcgateext\r\n"
+                            			"set ippaext\r\nget ippaext\r\nlogout\r\n\r\n>>> ";
+                            	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
+                            	tcp_output(tpcb);
                             }
                             else if (strcmp(client->command, "logout") == 0)
                             {

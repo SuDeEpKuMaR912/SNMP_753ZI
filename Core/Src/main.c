@@ -40,6 +40,7 @@
 #include "snmpv3_app.h"
 #include "telnet_server.h"
 #include "ip_persist.h"
+#include "gpio_control.h"
 
 #include "usbd_hid.h"
 #include "keyboard_matrix.h"
@@ -236,6 +237,9 @@ int main(void)
   Keyboard_Matrix_Init();
 
   HAL_TIM_Base_Start_IT(&htim6);
+
+  //GPIO I/P detect init
+  GPIO_Control_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -261,6 +265,9 @@ int main(void)
 	          last_dhcp_ip = current_ip;
 	      }
 	  }
+
+	  //GPIO I/P control
+	  GPIO_Control_Process();
 
 	  //BMS
 	  static uint32_t lastBMS = 0;
@@ -526,7 +533,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(Row5_GPIO_Port, Row5_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_14|GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_14, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : Row1_Pin Row2_Pin Row3_Pin Row4_Pin
                            PE1 */
@@ -558,11 +565,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(Row5_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB0 PB14 PB6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_14|GPIO_PIN_6;
+  /*Configure GPIO pins : PB0 PB14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_14;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
