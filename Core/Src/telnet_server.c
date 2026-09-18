@@ -10,6 +10,7 @@
 #include "lwip/apps/snmp.h"
 #include <string.h>
 #include <stdio.h>
+#include "main.h"
 
 #define TELNET_PORT 23
 
@@ -251,14 +252,8 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                                 if (IP_Persist_Save_Mode(&current_ip, IP_MODE_DHCP) != HAL_OK)
                                 {
-                                    static const char error[] =
-                                        "\r\nFailed to save DHCP mode.\r\n\r\n>>> ";
-
-                                    tcp_write(tpcb,
-                                              error,
-                                              sizeof(error) - 1,
-                                              TCP_WRITE_FLAG_COPY);
-
+                                    static const char error[] = "\r\nFailed to save DHCP mode.\r\n\r\n>>> ";
+                                    tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
                                     tcp_output(tpcb);
                                 }
                                 else
@@ -336,15 +331,9 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                                   TCP_WRITE_FLAG_COPY);
 
                                         tcp_output(tpcb);
-
                                         HAL_Delay(200);
-
                                         dhcp_stop(&gnetif);
-
-                                        netif_set_addr(&gnetif,
-                                                       &new_ip,
-                                                       &new_mask,
-                                                       &new_gw);
+                                        netif_set_addr(&gnetif, &new_ip, &new_mask, &new_gw);
                                     }
                                 }
                                 else
@@ -358,22 +347,14 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             {
                                 char response[128];
 
-                                snprintf(response,
-                                         sizeof(response),
+                                snprintf(response, sizeof(response),
                                          "\r\n"
                                          "MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\r\n"
                                          "\r\n>>> ",
-                                         gnetif.hwaddr[0],
-                                         gnetif.hwaddr[1],
-                                         gnetif.hwaddr[2],
-                                         gnetif.hwaddr[3],
-                                         gnetif.hwaddr[4],
-                                         gnetif.hwaddr[5]);
+                                         gnetif.hwaddr[0], gnetif.hwaddr[1], gnetif.hwaddr[2],
+                                         gnetif.hwaddr[3], gnetif.hwaddr[4], gnetif.hwaddr[5]);
 
-                                tcp_write(tpcb,
-                                          response,
-                                          strlen(response),
-                                          TCP_WRITE_FLAG_COPY);
+                                tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                             }
                             else if (strncmp(client->command, "set lcgateext ", 14) == 0)
                             {
@@ -391,16 +372,8 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             else if (strcmp(client->command, "get lcgateext") == 0)
                             {
                                 char response[96];
-
-                                snprintf(response,
-                                         sizeof(response),
-                                         "\r\nLC Gate Ext: %lu\r\n\r\n>>> ",
-                                         (unsigned long)lcgateext);
-
-                                tcp_write(tpcb,
-                                          response,
-                                          strlen(response),
-                                          TCP_WRITE_FLAG_COPY);
+                                snprintf(response, sizeof(response), "\r\nLC Gate Ext: %lu\r\n\r\n>>> ", (unsigned long)lcgateext);
+                                tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                             }
                             else if (strncmp(client->command, "set ippaext ", 12) == 0)
                             {
@@ -425,9 +398,24 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             {
                             	static const char response[] =
                             			"\r\nAvailable Commands:\r\nip_a\r\ngetmac\r\nsetstatic\r\ndhcp\r\nset lcgateext\r\nget lcgateext\r\n"
-                            			"set ippaext\r\nget ippaext\r\nlogout\r\n\r\n>>> ";
+                            			"set ippaext\r\nget ippaext\r\nlcgate status\r\nlogout\r\n\r\n>>> ";
                             	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                             	tcp_output(tpcb);
+                            }
+                            else if (strncmp(client->command, "lcgate status", 13) == 0)
+                            {
+                            	if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6) == GPIO_PIN_SET)
+                            	{
+                            		static const char response[] = "\r\nLC Gate ON.\r\n\r\n>>> ";
+                                	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
+                                	tcp_output(tpcb);
+                            	}
+                            	else
+                            	{
+                            		static const char response[] = "\r\nLC Gate OFF.\r\n\r\n>>> ";
+                                	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
+                                	tcp_output(tpcb);
+                            	}
                             }
                             else if (strcmp(client->command, "logout") == 0)
                             {
@@ -448,7 +436,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 client->login_state = TELNET_LOGIN_USERNAME;
 
                                 tcp_write(tpcb, echo_restore, sizeof(echo_restore), TCP_WRITE_FLAG_COPY);
-
                                 tcp_write(tpcb, logout_screen, sizeof(logout_screen) - 1, TCP_WRITE_FLAG_COPY);
                             }
                             else
@@ -476,7 +463,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                 if (data[i] == TELNET_IAC)
                 {
                     tcp_write(tpcb, &data[i], 1, TCP_WRITE_FLAG_COPY);
-
                     client->telnet_state = TELNET_STATE_DATA;
                 }
                 else if (data[i] == TELNET_WILL || data[i] == TELNET_WONT || data[i] == TELNET_DO || data[i] == TELNET_DONT)
@@ -531,7 +517,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                     }
 
                     response[2] = data[i];
-
                     tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
                 }
 
