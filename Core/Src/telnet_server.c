@@ -231,7 +231,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             if (strcmp(client->command, "ip_a") == 0)
                             {
                                 char response[256];
-
                                 char ip_str[16];
                                 char mask_str[16];
                                 char gw_str[16];
@@ -430,14 +429,23 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             else if (strncmp(client->command, "set lcgateext ", 14) == 0)
                             {
                                 uint32_t value;
-                                static const char response[] = "\r\nLC Gate Ext set successfully.\r\n\r\n>>> ";
+
+                                static const char response[] =
+                                    "\r\nLC Gate Ext set successfully.\r\n\r\n>>> ";
 
                                 if (sscanf(&client->command[14], "%lu", &value) == 1)
                                 {
-                                    lcgateext = value;
-                                    tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
-                                    tcp_output(tpcb);
+                                    if (IP_Persist_Save_Ext(value, ippaext) == HAL_OK)
+                                    {
+                                        lcgateext = value;
 
+                                        tcp_write(tpcb,
+                                                  response,
+                                                  sizeof(response) - 1,
+                                                  TCP_WRITE_FLAG_COPY);
+
+                                        tcp_output(tpcb);
+                                    }
                                 }
                             }
                             else if (strcmp(client->command, "get lcgateext") == 0)
@@ -448,15 +456,25 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             }
                             else if (strncmp(client->command, "set ippaext ", 12) == 0)
                             {
-                            	uint32_t value;
-                                static const char response[] = "\r\nIPPA Ext set successfully.\r\n\r\n>>> ";
+                                uint32_t value;
 
-                            	if (sscanf(&client->command[12], "%lu", &value) == 1)
-                            	{
-                            		ippaext = value;
-                            		tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
-                            	    tcp_output(tpcb);
-                            	}
+                                static const char response[] =
+                                    "\r\nIPPA Ext set successfully.\r\n\r\n>>> ";
+
+                                if (sscanf(&client->command[12], "%lu", &value) == 1)
+                                {
+                                    if (IP_Persist_Save_Ext(lcgateext, value) == HAL_OK)
+                                    {
+                                        ippaext = value;
+
+                                        tcp_write(tpcb,
+                                                  response,
+                                                  sizeof(response) - 1,
+                                                  TCP_WRITE_FLAG_COPY);
+
+                                        tcp_output(tpcb);
+                                    }
+                                }
                             }
                             else if (strcmp(client->command, "get ippaext") == 0)
                             {
@@ -638,6 +656,13 @@ void telnet_server_init(void)
 {
     struct tcp_pcb *pcb;
 
+    /* Load LC Gate Ext and IPPA Ext from Flash */
+        if (IP_Persist_Load_Ext(&lcgateext, &ippaext) != HAL_OK)
+        {
+            lcgateext = 0;
+            ippaext = 0;
+        }
+
     pcb = tcp_new();
 
     if (pcb == NULL)
@@ -659,4 +684,14 @@ void telnet_server_init(void)
     }
 
     tcp_accept(pcb, telnet_accept);
+}
+
+uint32_t Telnet_Get_LCGateExt(void)
+{
+    return lcgateext;
+}
+
+uint32_t Telnet_Get_IPPAExt(void)
+{
+    return ippaext;
 }

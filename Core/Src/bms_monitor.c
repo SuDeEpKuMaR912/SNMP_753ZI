@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "lwip/apps/snmp.h"
+#include "telnet_server.h"
 
 extern UART_HandleTypeDef huart2;
 
@@ -110,7 +111,21 @@ void Read_BMS_Data(void)
         struct snmp_varbind bms_varbind;
 
         char state_str[20];
-        char bms_info[128];
+        char bms_info[192];
+
+        uint32_t uid0;
+        uint32_t uid1;
+        uint32_t uid2;
+
+        uint32_t lcgateext;
+        uint32_t ippaext;
+
+        uid0 = HAL_GetUIDw0();
+        uid1 = HAL_GetUIDw1();
+        uid2 = HAL_GetUIDw2();
+
+        lcgateext = Telnet_Get_LCGateExt();
+        ippaext = Telnet_Get_IPPAExt();
 
         err_t trap_err;
 
@@ -127,8 +142,18 @@ void Read_BMS_Data(void)
             snprintf(state_str, sizeof(state_str), "IDLE");
         }
 
-        snprintf(bms_info, sizeof(bms_info), "SOC: %u, State: %s, Voltage: %.2f V, Current: %.2f A", soc, state_str,
-                 packVoltage / 100.0f, current / 100.0f);
+        snprintf(bms_info,
+                 sizeof(bms_info),
+                 "SOC: %u, State: %s, Voltage: %.2f V, Current: %.2f A, LC Gate Ext: %lu, IPPA Ext: %lu, STM UID: %08lX-%08lX-%08lX",
+                 soc,
+                 state_str,
+                 packVoltage / 100.0f,
+                 current / 100.0f,
+                 (unsigned long)lcgateext,
+                 (unsigned long)ippaext,
+                 (unsigned long)uid0,
+                 (unsigned long)uid1,
+                 (unsigned long)uid2);
 
         snmp_oid_assign(&eoid, bms_enterprise_oid, sizeof(bms_enterprise_oid) / sizeof(bms_enterprise_oid[0]));
 

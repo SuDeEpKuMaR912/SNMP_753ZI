@@ -10,11 +10,11 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 
 static const uint8_t keyMap[NUM_ROWS][NUM_COLS] =
 {
-    {0x3A, 0x3B, 0x42, 0x20, 0x6A, 0x6D},     //f1   f2   f9   CallAns   f15   f18
-    {0x3C, 0x3D, 0x43, 0x26, 0x6B, 0x70},     //f3   f4   f10  CallCut   f16   f21
-    {0x3E, 0x3F, 0xEA, 0xE2, 0x6C, 0x71},     //f5   f6   V-   Mute      f17   f22
-    {0x40, 0x41, 0xE9, 0x6E, 0x52, 0x00},     //f7   f8   V+   MicMute   Up    ---
-    {0x44, 0x45, 0x68, 0x69, 0x51, 0x00}      //f11  f12  f13  f14       Down  ---
+    {0x3A, 0x3B, 0x44, 0x45, 0x70, 0xE9},     // KR1: F1  F2  F11 F12 F21 V+
+    {0x3C, 0x3D, 0x68, 0x69, 0xE2, 0xEA},     // KR2: F3  F4  F13 F14 SPK V-
+    {0x3E, 0x3F, 0x6A, 0x6B, 0x72, 0x52},     // KR3: F5  F6  F15 F16 MUTE F_UP
+    {0x40, 0x41, 0x6C, 0x6D, 0x2C, 0x51},     // KR4: F7  F8  F17 F18 G_CALL F_DN
+    {0x42, 0x43, 0x6E, 0x6F, 0x20, 0x26}      // KR5: F9  F10 F19 F20 CALL_ANS CALL_CUT
 };
 
 static GPIO_TypeDef *row_ports[NUM_ROWS] =
@@ -141,10 +141,10 @@ static void Keyboard_SendTelephony(uint8_t usage)
         // Drop - Call Cut
         telephonyReport[1] = 0x02;
     }
-    else if (usage == 0x2F)
+    else if (usage == 0x2C)
     {
-        // Phone Mute - Mic Mute
-        telephonyReport[1] = 0x04;
+        // Conference - Group Call
+        telephonyReport[1] = 0x08;
     }
     else
     {
@@ -174,7 +174,7 @@ static void Keyboard_SendRelease(void)
 		while (((USBD_HID_HandleTypeDef *) hUsbDeviceFS.pClassData)->state == HID_BUSY);
 		USBD_HID_SendReport(&hUsbDeviceFS, consumerReport, sizeof(consumerReport));
 	}
-	else if (previousKey == 0x20 || previousKey == 0x26)
+	else if (previousKey == 0x20 || previousKey == 0x26 || previousKey == 0x2C)
 	{
 		telephonyReport[0] = 0x06;
 		telephonyReport[1] = 0x00;
@@ -210,7 +210,7 @@ void Keyboard_Matrix_Process(void)
         {
             Keyboard_SendConsumer(currentKey);
         }
-        else if (currentKey == 0x20 || currentKey == 0x26)
+        else if (currentKey == 0x20 || currentKey == 0x26 || currentKey == 0x2C)
         {
         	Keyboard_SendTelephony(currentKey);
         }

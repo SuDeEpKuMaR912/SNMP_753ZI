@@ -119,7 +119,6 @@ int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t 
         }
 
         memcpy(output + offset, &random_number, copy_len);
-
         offset += copy_len;
     }
 
@@ -575,7 +574,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : PB6 */
   GPIO_InitStruct.Pin = GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */

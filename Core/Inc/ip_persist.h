@@ -19,4 +19,10 @@ HAL_StatusTypeDef IP_Persist_Save(const ip4_addr_t *ip);
 HAL_StatusTypeDef IP_Persist_Save_Mode(const ip4_addr_t *ip, IP_Mode_t mode);
 HAL_StatusTypeDef IP_Persist_Load_Mode(IP_Mode_t *mode);
 
+HAL_StatusTypeDef IP_Persist_Load_Ext(uint32_t *lcgateext,
+                                      uint32_t *ippaext);
+
+HAL_StatusTypeDef IP_Persist_Save_Ext(uint32_t lcgateext,
+                                      uint32_t ippaext);
+
 #endif
