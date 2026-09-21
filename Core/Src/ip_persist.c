@@ -9,33 +9,37 @@ typedef struct
     uint32_t ip_address;
     uint32_t ip_inverse;
     uint32_t sequence;
-    uint32_t reserved[4];
+    uint32_t mode;
 
+    uint32_t lcgateext;
+    uint32_t ippaext;
+
+    uint32_t manager_ip;
 } ip_persist_record_t;
 
-
-/*
- * Simple corruption check.
- */
 static uint32_t IP_Persist_Checksum(uint32_t ip)
 {
     return ~ip;
 }
 
+static uint8_t IP_Persist_ModeValid(uint32_t mode)
+{
+    return (mode == IP_MODE_STATIC || mode == IP_MODE_DHCP);
+}
 
-/*
- * Check whether a Flash record is valid.
- */
-static uint8_t IP_Persist_RecordValid(
-    const ip_persist_record_t *record)
+static uint8_t IP_Persist_RecordValid(const ip_persist_record_t *record)
 {
     if (record->magic != IP_PERSIST_MAGIC)
     {
         return 0;
     }
 
-    if (record->ip_inverse !=
-        IP_Persist_Checksum(record->ip_address))
+    if (record->ip_inverse != IP_Persist_Checksum(record->ip_address))
+    {
+        return 0;
+    }
+
+    if (!IP_Persist_ModeValid(record->mode))
     {
         return 0;
     }
@@ -43,35 +47,19 @@ static uint8_t IP_Persist_RecordValid(
     return 1;
 }
 
-
-/*
- * Find the newest valid IP record.
- */
-static const ip_persist_record_t *
-IP_Persist_FindLatest(void)
+static const ip_persist_record_t * IP_Persist_FindLatest(void)
 {
     const ip_persist_record_t *latest = NULL;
 
-    for (uint32_t offset = 0;
-         offset < IP_PERSIST_SECTOR_SIZE;
-         offset += IP_PERSIST_RECORD_SIZE)
+    for (uint32_t offset = 0; offset < IP_PERSIST_SECTOR_SIZE; offset += IP_PERSIST_RECORD_SIZE)
     {
-        const ip_persist_record_t *record =
-            (const ip_persist_record_t *)
-            (IP_PERSIST_FLASH_ADDRESS + offset);
+        const ip_persist_record_t *record = (const ip_persist_record_t *)(IP_PERSIST_FLASH_ADDRESS + offset);
 
-        /*
-         * Empty Flash.
-         */
         if (record->magic == 0xFFFFFFFFUL)
         {
             break;
         }
 
-        /*
-         * Stop if a corrupted/incomplete record
-         * is encountered.
-         */
         if (!IP_Persist_RecordValid(record))
         {
             break;
@@ -83,19 +71,11 @@ IP_Persist_FindLatest(void)
     return latest;
 }
 
-
-/*
- * Find the first unused Flash record slot.
- */
 static uint32_t IP_Persist_FindFreeAddress(void)
 {
-    for (uint32_t offset = 0;
-         offset < IP_PERSIST_SECTOR_SIZE;
-         offset += IP_PERSIST_RECORD_SIZE)
+    for (uint32_t offset = 0; offset < IP_PERSIST_SECTOR_SIZE; offset += IP_PERSIST_RECORD_SIZE)
     {
-        const ip_persist_record_t *record =
-            (const ip_persist_record_t *)
-            (IP_PERSIST_FLASH_ADDRESS + offset);
+        const ip_persist_record_t *record = (const ip_persist_record_t *)(IP_PERSIST_FLASH_ADDRESS + offset);
 
         if (record->magic == 0xFFFFFFFFUL)
         {
@@ -106,14 +86,14 @@ static uint32_t IP_Persist_FindFreeAddress(void)
     return 0;
 }
 
-
-/*
- * Write one 32-byte Flash record.
- */
-static HAL_StatusTypeDef
-IP_Persist_WriteRecord(uint32_t address,
-                       uint32_t ip_address,
-                       uint32_t sequence)
+static HAL_StatusTypeDef IP_Persist_WriteRecord(
+    uint32_t address,
+    uint32_t ip_address,
+    IP_Mode_t mode,
+    uint32_t sequence,
+    uint32_t lcgateext,
+    uint32_t ippaext,
+    uint32_t manager_ip)
 {
     ip_persist_record_t record = {0};
 
@@ -121,90 +101,71 @@ IP_Persist_WriteRecord(uint32_t address,
     record.ip_address = ip_address;
     record.ip_inverse = IP_Persist_Checksum(ip_address);
     record.sequence = sequence;
+    record.mode = mode;
+
+    record.lcgateext = lcgateext;
+    record.ippaext = ippaext;
+
+    record.manager_ip = manager_ip;
 
     HAL_StatusTypeDef status;
 
     HAL_FLASH_Unlock();
 
-    status = HAL_FLASH_Program(
-        FLASH_TYPEPROGRAM_FLASHWORD,
-        address,
-        (uint32_t)&record
-    );
+    status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD,
+                               address,
+                               (uint32_t)&record);
 
     HAL_FLASH_Lock();
 
     return status;
 }
 
-
-/*
- * Load persistent IP address.
- *
- * If no valid IP exists in Flash, use default_ip.
- */
-HAL_StatusTypeDef
-IP_Persist_Init(ip4_addr_t *ip,
-                const ip4_addr_t *default_ip)
+HAL_StatusTypeDef IP_Persist_Init(ip4_addr_t *ip, const ip4_addr_t *default_ip)
 {
     if (ip == NULL || default_ip == NULL)
     {
         return HAL_ERROR;
     }
 
-    const ip_persist_record_t *latest =
-        IP_Persist_FindLatest();
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
 
     if (latest == NULL)
     {
-        /*
-         * No saved IP exists.
-         * Use firmware default.
-         */
         *ip = *default_ip;
 
         return HAL_OK;
     }
 
-    /*
-     * Load saved IP.
-     */
     ip->addr = latest->ip_address;
 
     return HAL_OK;
 }
 
-
-/*
- * Save a new IP address to Flash.
- */
-HAL_StatusTypeDef
-IP_Persist_Save(const ip4_addr_t *ip)
+HAL_StatusTypeDef IP_Persist_Save(const ip4_addr_t *ip)
 {
     if (ip == NULL)
     {
         return HAL_ERROR;
     }
 
-    const ip_persist_record_t *latest =
-        IP_Persist_FindLatest();
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
 
-    /*
-     * Don't write Flash if the IP hasn't changed.
-     */
-    if (latest != NULL &&
-        latest->ip_address == ip->addr)
+    uint32_t lcgateext = 0;
+    uint32_t ippaext = 0;
+    uint32_t manager_ip = 0;
+    uint32_t sequence = 1;
+
+    if (latest != NULL)
     {
-        return HAL_OK;
+        lcgateext = latest->lcgateext;
+        ippaext = latest->ippaext;
+        manager_ip = latest->manager_ip;
+        sequence = latest->sequence + 1;
     }
 
-    uint32_t write_address =
-        IP_Persist_FindFreeAddress();
+    uint32_t write_address = IP_Persist_FindFreeAddress();
 
-    /*
-     * Sector full.
-     * Erase Sector 6 and start again.
-     */
     if (write_address == 0)
     {
         FLASH_EraseInitTypeDef erase = {0};
@@ -219,10 +180,7 @@ IP_Persist_Save(const ip4_addr_t *ip)
         HAL_FLASH_Unlock();
 
         HAL_StatusTypeDef status =
-            HAL_FLASHEx_Erase(
-                &erase,
-                &sector_error
-            );
+            HAL_FLASHEx_Erase(&erase, &sector_error);
 
         HAL_FLASH_Lock();
 
@@ -231,20 +189,255 @@ IP_Persist_Save(const ip4_addr_t *ip)
             return status;
         }
 
-        write_address =
-            IP_PERSIST_FLASH_ADDRESS;
-    }
-
-    uint32_t sequence = 1;
-
-    if (latest != NULL)
-    {
-        sequence = latest->sequence + 1;
+        write_address = IP_PERSIST_FLASH_ADDRESS;
     }
 
     return IP_Persist_WriteRecord(
         write_address,
         ip->addr,
-        sequence
+        IP_MODE_STATIC,
+        sequence,
+        lcgateext,
+        ippaext,
+        manager_ip
     );
+}
+
+HAL_StatusTypeDef IP_Persist_Save_Mode(const ip4_addr_t *ip, IP_Mode_t mode)
+{
+    if (ip == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    if (mode != IP_MODE_STATIC && mode != IP_MODE_DHCP)
+    {
+        return HAL_ERROR;
+    }
+
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
+
+    uint32_t sequence = 1;
+    uint32_t lcgateext = 0;
+    uint32_t ippaext = 0;
+    uint32_t manager_ip = 0;
+
+    if (latest != NULL)
+    {
+        sequence = latest->sequence + 1;
+        lcgateext = latest->lcgateext;
+        ippaext = latest->ippaext;
+        manager_ip = latest->manager_ip;
+    }
+
+    uint32_t write_address = IP_Persist_FindFreeAddress();
+
+    if (write_address == 0)
+    {
+        FLASH_EraseInitTypeDef erase = {0};
+        uint32_t sector_error = 0;
+
+        erase.TypeErase = FLASH_TYPEERASE_SECTORS;
+        erase.Banks = FLASH_BANK_2;
+        erase.Sector = FLASH_SECTOR_6;
+        erase.NbSectors = 1;
+        erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+
+        HAL_FLASH_Unlock();
+
+        HAL_StatusTypeDef status =
+            HAL_FLASHEx_Erase(&erase, &sector_error);
+
+        HAL_FLASH_Lock();
+
+        if (status != HAL_OK)
+        {
+            return status;
+        }
+
+        write_address = IP_PERSIST_FLASH_ADDRESS;
+    }
+
+    return IP_Persist_WriteRecord(
+        write_address,
+        ip->addr,
+        mode,
+        sequence,
+        lcgateext,
+        ippaext,
+        manager_ip
+    );
+}
+
+HAL_StatusTypeDef IP_Persist_Load_Mode(IP_Mode_t *mode)
+{
+    if (mode == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
+
+    if (latest == NULL)
+    {
+        *mode = IP_MODE_STATIC;
+        return HAL_OK;
+    }
+
+    *mode = (IP_Mode_t)latest->mode;
+
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef IP_Persist_Save_Ext(uint32_t lcgateext,
+                                      uint32_t ippaext)
+{
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
+
+    uint32_t write_address = IP_Persist_FindFreeAddress();
+
+    if (write_address == 0)
+    {
+        FLASH_EraseInitTypeDef erase = {0};
+        uint32_t sector_error = 0;
+
+        erase.TypeErase = FLASH_TYPEERASE_SECTORS;
+        erase.Banks = FLASH_BANK_2;
+        erase.Sector = FLASH_SECTOR_6;
+        erase.NbSectors = 1;
+        erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+
+        HAL_FLASH_Unlock();
+
+        HAL_StatusTypeDef status =
+            HAL_FLASHEx_Erase(&erase, &sector_error);
+
+        HAL_FLASH_Lock();
+
+        if (status != HAL_OK)
+        {
+            return status;
+        }
+
+        write_address = IP_PERSIST_FLASH_ADDRESS;
+    }
+
+    uint32_t ip_address = 0;
+    IP_Mode_t mode = IP_MODE_STATIC;
+    uint32_t sequence = 1;
+    uint32_t manager_ip = 0;
+
+    if (latest != NULL)
+    {
+        ip_address = latest->ip_address;
+        mode = (IP_Mode_t)latest->mode;
+        manager_ip = latest->manager_ip;
+        sequence = latest->sequence + 1;
+    }
+
+    return IP_Persist_WriteRecord(write_address,
+                                  ip_address,
+                                  mode,
+                                  sequence,
+                                  lcgateext,
+                                  ippaext,
+                                  manager_ip);
+}
+
+HAL_StatusTypeDef IP_Persist_Load_Ext(uint32_t *lcgateext,
+                                      uint32_t *ippaext)
+{
+    if (lcgateext == NULL || ippaext == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
+
+    if (latest == NULL)
+    {
+        *lcgateext = 0;
+        *ippaext = 0;
+
+        return HAL_OK;
+    }
+
+    *lcgateext = latest->lcgateext;
+    *ippaext = latest->ippaext;
+
+    return HAL_OK;
+}
+
+static HAL_StatusTypeDef IP_Persist_EraseSector(void)
+{
+    FLASH_EraseInitTypeDef erase = {0};
+    uint32_t sector_error = 0;
+
+    erase.TypeErase = FLASH_TYPEERASE_SECTORS;
+    erase.Banks = FLASH_BANK_2;
+    erase.Sector = FLASH_SECTOR_6;
+    erase.NbSectors = 1;
+    erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+
+    HAL_FLASH_Unlock();
+
+    HAL_StatusTypeDef status =
+        HAL_FLASHEx_Erase(&erase, &sector_error);
+
+    HAL_FLASH_Lock();
+
+    return status;
+}
+HAL_StatusTypeDef IP_Persist_Save_Manager_IP(uint32_t manager_ip)
+{
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
+
+    uint32_t write_address = IP_Persist_FindFreeAddress();
+
+    if (write_address == 0)
+    {
+        HAL_StatusTypeDef status = IP_Persist_EraseSector();
+
+        if (status != HAL_OK)
+        {
+            return status;
+        }
+
+        write_address = IP_PERSIST_FLASH_ADDRESS;
+    }
+
+    uint32_t ip_address = 0;
+    IP_Mode_t mode = IP_MODE_STATIC;
+    uint32_t sequence = 1;
+    uint32_t lcgateext_value = 0;
+    uint32_t ippaext_value = 0;
+
+    if (latest != NULL)
+    {
+        ip_address = latest->ip_address;
+        mode = (IP_Mode_t)latest->mode;
+        sequence = latest->sequence + 1;
+        lcgateext_value = latest->lcgateext;
+        ippaext_value = latest->ippaext;
+    }
+
+    return IP_Persist_WriteRecord(write_address,
+                                  ip_address,
+                                  mode,
+                                  sequence,
+                                  lcgateext_value,
+                                  ippaext_value,
+                                  manager_ip);
+}
+
+uint32_t IP_Persist_Load_Manager_IP(void)
+{
+    const ip_persist_record_t *latest = IP_Persist_FindLatest();
+
+    if (latest == NULL)
+    {
+        return 0;
+    }
+
+    return latest->manager_ip;
 }

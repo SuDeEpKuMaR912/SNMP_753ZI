@@ -5,5 +5,6 @@
 
 void Keyboard_Matrix_Init(void);
 void Keyboard_Matrix_Process(void);
+void Keyboard_Matrix_TimerCallback(void);
 
 #endif
