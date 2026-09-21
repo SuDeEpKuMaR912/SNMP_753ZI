@@ -174,8 +174,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             if (strcmp(client->username, "admin") == 0 && strcmp(client->password, "admin") == 0)
                             {
                             	static const char welcome_screen[] =
-                            	    "\033[2J\033[H"
-                            	    "\r\n"
+                            	    "\r\n\r\n"
                             	    "================================\r\n"
                             	    " LC GATE COMMAND LINE INTERFACE\r\n"
                             	    "================================\r\n"
@@ -204,8 +203,11 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             	    TELNET_ECHO
                             	};
 
-                            	static const char login_failed[] = "\033[2J\033[H"
-                            			"Username: ";
+                            	static const char login_failed[] =
+                            	        "\r\n"
+                            	        "Login Failed\r\n"
+                            	        "\r\n"
+                            	        "Username: ";
 
                                 client->username_len = 0;
                                 client->password_len = 0;
@@ -228,7 +230,18 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         if (data[i] == '\r' || data[i] == '\n')
                         {
                             client->command[client->command_len] = '\0';
-                            if (strcmp(client->command, "ip_a") == 0)
+                            if (client->command_len == 0)
+                            {
+                                static const char response[] = "\r\n>>> ";
+
+                                tcp_write(
+                                    tpcb,
+                                    response,
+                                    sizeof(response) - 1,
+                                    TCP_WRITE_FLAG_COPY
+                                );
+                            }
+                            else if (strcmp(client->command, "ip a") == 0)
                             {
                                 char response[256];
                                 char ip_str[16];
@@ -249,10 +262,10 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                                 snprintf(response, sizeof(response),
                                          "\r\n"
-                                         "IP Address: %s\r\n"
-                                         "Netmask:    %s\r\n"
-                                         "Gateway:    %s\r\n"
-                                         "UUID:       %08lX-%08lX-%08lX\r\n"
+                                         "IP Address : %s\r\n"
+                                         "Netmask    : %s\r\n"
+                                         "Gateway    : %s\r\n"
+                                         "UUID       : %08lX-%08lX-%08lX\r\n"
                                          "\r\n>>> ", ip_str, mask_str, gw_str, (unsigned long)uid0, (unsigned long)uid1, (unsigned long)uid2);
 
                                 tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
@@ -267,17 +280,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 tcp_output(tpcb);
                                 HAL_Delay(200);
 
-                                ip4_addr_t current_ip;
-                                current_ip.addr = gnetif.ip_addr.addr;
 
-                                if (IP_Persist_Save_Mode(&current_ip, IP_MODE_DHCP) != HAL_OK)
-                                {
-                                    static const char error[] = "\r\nFailed to save DHCP mode.\r\n\r\n>>> ";
-                                    tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
-                                    tcp_output(tpcb);
-                                }
-                                else
-                                {
                                     ip4_addr_t zero_ip;
                                     ip4_addr_t zero_mask;
                                     ip4_addr_t zero_gw;
@@ -289,7 +292,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     dhcp_stop(&gnetif);
                                     netif_set_addr(&gnetif, &zero_ip, &zero_mask, &zero_gw);
                                     dhcp_start(&gnetif);
-                                }
+
                             }
                             else if (strncmp(client->command, "setstatic ", 10) == 0)
                             {
@@ -359,18 +362,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                         }
                                     }
 
-                                    // Persist IP address
-                                    if (IP_Persist_Save(&new_ip) != HAL_OK)
-                                    {
-                                        static const char error[] =
-                                            "\r\nFailed to save IP address.\r\n"
-                                            "\r\n>>> ";
-
-                                        tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
-                                        tcp_output(tpcb);
-                                    }
-                                    else
-                                    {
                                         char ip_str[16];
                                         char mask_str[16];
                                         char gw_str[16];
@@ -393,7 +384,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                         HAL_Delay(200);
                                         dhcp_stop(&gnetif);
                                         netif_set_addr(&gnetif, &new_ip, &new_mask, &new_gw);
-                                    }
+
                                 }
                             setstatic_done:
                                 ;
@@ -411,14 +402,14 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                                 tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                             }
-                            else if (strncmp(client->command, "set lcgateext ", 14) == 0)
+                            else if (strncmp(client->command, "setlcgateext ", 13) == 0)
                             {
                                 uint32_t value;
 
                                 static const char response[] =
                                     "\r\nLC Gate Ext set successfully.\r\n\r\n>>> ";
 
-                                if (sscanf(&client->command[14], "%lu", &value) == 1)
+                                if (sscanf(&client->command[13], "%lu", &value) == 1)
                                 {
                                     if (IP_Persist_Save_Ext(value, ippaext) == HAL_OK)
                                     {
@@ -433,20 +424,20 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     }
                                 }
                             }
-                            else if (strcmp(client->command, "get lcgateext") == 0)
+                            else if (strcmp(client->command, "getlcgateext") == 0)
                             {
                                 char response[96];
                                 snprintf(response, sizeof(response), "\r\nLC Gate Ext: %lu\r\n\r\n>>> ", (unsigned long)lcgateext);
                                 tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                             }
-                            else if (strncmp(client->command, "set ippaext ", 12) == 0)
+                            else if (strncmp(client->command, "setippaext ", 11) == 0)
                             {
                                 uint32_t value;
 
                                 static const char response[] =
                                     "\r\nIPPA Ext set successfully.\r\n\r\n>>> ";
 
-                                if (sscanf(&client->command[12], "%lu", &value) == 1)
+                                if (sscanf(&client->command[11], "%lu", &value) == 1)
                                 {
                                     if (IP_Persist_Save_Ext(lcgateext, value) == HAL_OK)
                                     {
@@ -461,54 +452,237 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     }
                                 }
                             }
-                            else if (strcmp(client->command, "get ippaext") == 0)
+                            else if (strcmp(client->command, "getippaext") == 0)
                             {
                             	char response[96];
 
                             	snprintf(response, sizeof(response), "\r\nIPPA Ext: %lu\r\n\r\n>>> ", (unsigned long)ippaext);
                             	tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                             }
+                            else if (strncmp(client->command, "settrapip ", 10) == 0)
+                            {
+                                ip4_addr_t new_manager_ip4;
+
+                                if (ip4addr_aton(&client->command[10], &new_manager_ip4))
+                                {
+                                    HAL_StatusTypeDef status =
+                                        IP_Persist_Save_Manager_IP(new_manager_ip4.addr);
+
+                                    if (status == HAL_OK)
+                                    {
+                                        ip_addr_t new_manager_ip;
+
+                                        new_manager_ip.addr = new_manager_ip4.addr;
+
+                                        snmp_trap_dst_ip_set(0, &new_manager_ip);
+
+                                        const char *response =
+                                            "SNMP Manager IP saved successfully.\r\n\r\n>>> ";
+
+                                        tcp_write(
+                                            tpcb,
+                                            response,
+                                            strlen(response),
+                                            TCP_WRITE_FLAG_COPY
+                                        );
+
+                                        tcp_output(tpcb);
+                                    }
+                                    else
+                                    {
+                                        const char *response =
+                                            "Error: Failed to save SNMP Manager IP.\r\n\r\n>>> ";
+
+                                        tcp_write(
+                                            tpcb,
+                                            response,
+                                            strlen(response),
+                                            TCP_WRITE_FLAG_COPY
+                                        );
+
+                                        tcp_output(tpcb);
+                                    }
+                                }
+                                else
+                                {
+                                    const char *response =
+                                        "Invalid IP address. Use: settrapip 192.168.80.7\r\n\r\n>>> ";
+
+                                    tcp_write(
+                                        tpcb,
+                                        response,
+                                        strlen(response),
+                                        TCP_WRITE_FLAG_COPY
+                                    );
+
+                                    tcp_output(tpcb);
+                                }
+                            }
+                            else if (strcmp(client->command, "gettrapip") == 0)
+                            {
+                                uint32_t saved_manager_ip = IP_Persist_Load_Manager_IP();
+
+                                ip4_addr_t manager_ip4;
+                                char manager_ip_str[16];
+                                char response[96];
+
+                                if (saved_manager_ip != 0)
+                                {
+                                    manager_ip4.addr = saved_manager_ip;
+                                }
+                                else
+                                {
+                                    IP4_ADDR(&manager_ip4, 192, 168, 80, 7);
+                                }
+
+                                ip4addr_ntoa_r(
+                                    &manager_ip4,
+                                    manager_ip_str,
+                                    sizeof(manager_ip_str)
+                                );
+
+                                snprintf(
+                                    response,
+                                    sizeof(response),
+                                    "\r\nSNMP Manager IP: %s\r\n\r\n>>> ",
+                                    manager_ip_str
+                                );
+
+                                tcp_write(
+                                    tpcb,
+                                    response,
+                                    strlen(response),
+                                    TCP_WRITE_FLAG_COPY
+                                );
+
+                                tcp_output(tpcb);
+                            }
+                            else if (strcmp(client->command, "get detail") == 0)
+                            {
+                                char response[512];
+
+                                char ip_str[16];
+                                char mask_str[16];
+                                char gw_str[16];
+                                char manager_ip_str[16];
+
+                                uint32_t uid0;
+                                uint32_t uid1;
+                                uint32_t uid2;
+
+                                uint32_t saved_manager_ip;
+                                ip4_addr_t manager_ip4;
+
+                                /* Get current network configuration */
+                                ip4addr_ntoa_r(
+                                    netif_ip4_addr(&gnetif),
+                                    ip_str,
+                                    sizeof(ip_str)
+                                );
+
+                                ip4addr_ntoa_r(
+                                    netif_ip4_netmask(&gnetif),
+                                    mask_str,
+                                    sizeof(mask_str)
+                                );
+
+                                ip4addr_ntoa_r(
+                                    netif_ip4_gw(&gnetif),
+                                    gw_str,
+                                    sizeof(gw_str)
+                                );
+
+                                /* Get MCU UUID */
+                                uid0 = HAL_GetUIDw0();
+                                uid1 = HAL_GetUIDw1();
+                                uid2 = HAL_GetUIDw2();
+
+                                /* Load SNMP Manager IP */
+                                saved_manager_ip = IP_Persist_Load_Manager_IP();
+
+                                if (saved_manager_ip != 0)
+                                {
+                                    manager_ip4.addr = saved_manager_ip;
+                                }
+                                else
+                                {
+                                    IP4_ADDR(&manager_ip4, 192, 168, 80, 7);
+                                }
+
+                                ip4addr_ntoa_r(
+                                    &manager_ip4,
+                                    manager_ip_str,
+                                    sizeof(manager_ip_str)
+                                );
+
+                                /* Prepare complete system details */
+                                snprintf(
+                                    response,
+                                    sizeof(response),
+
+                                    "\r\n"
+                                    "IP Address      : %s\r\n"
+                                    "Netmask         : %s\r\n"
+                                    "Gateway         : %s\r\n"
+                                    "MAC Address     : %02X:%02X:%02X:%02X:%02X:%02X\r\n"
+                                    "UUID            : %08lX-%08lX-%08lX\r\n"
+                                    "LC Gate Ext     : %lu\r\n"
+                                    "IPPA Ext        : %lu\r\n"
+                                    "SNMP Manager IP : %s\r\n"
+                                    "\r\n>>> ",
+
+                                    ip_str,
+                                    mask_str,
+                                    gw_str,
+
+                                    gnetif.hwaddr[0],
+                                    gnetif.hwaddr[1],
+                                    gnetif.hwaddr[2],
+                                    gnetif.hwaddr[3],
+                                    gnetif.hwaddr[4],
+                                    gnetif.hwaddr[5],
+
+                                    (unsigned long)uid0,
+                                    (unsigned long)uid1,
+                                    (unsigned long)uid2,
+
+                                    (unsigned long)lcgateext,
+                                    (unsigned long)ippaext,
+
+                                    manager_ip_str
+                                );
+
+                                tcp_write(
+                                    tpcb,
+                                    response,
+                                    strlen(response),
+                                    TCP_WRITE_FLAG_COPY
+                                );
+
+                                tcp_output(tpcb);
+                            }
                             else if (strcmp(client->command, "help") == 0)
                             {
                             	static const char response[] =
-                            			"\r\nAvailable Commands:\r\nip_a: To view current ip, netmask, gateway and uuid"
-                            			"\r\ngetmac: To view mac address"
-                            			"\r\nsetstatic: To set static ip, eg: setstatic 192.168.80.123 255.255.255.0 192.168.80.254"
-                            			"\r\ndhcp: To switch to dhcp ip address assignment"
-                            			"\r\nset lcgateext: To set lc gate extension"
-                            			"\r\nget lcgateext: To view current lc gate extension"
-                            			"\r\nset ippaext: To set ippa extension"
-                            			"\r\nget ippaext: To view current ippa extension"
-                            			"\r\nlogout\r\n\r\n>>> ";
+                            			"\r\nAvailable Commands:"
+                            			"\r\nip a         - To check current ip, netmask, gateway and uuid"
+                            			"\r\ngetmac       - To check MAC address"
+                            			"\r\nsetstatic    - To set static ip (FORMAT: setstatic <ip> <netmask> <gateway>)"
+                            			"\r\ndhcp         - To set dhcp configuration"
+                            			"\r\nsettrapip    - To set snmp manager ip"
+                            			"\r\ngettrapip    - To check snmp manager ip"
+                            			"\r\nsetlcgateext - To set lc gate extension"
+                            			"\r\ngetlcgateext - To check current lc gate extension"
+                            			"\r\nsetippaext   - To set ippa extension"
+                            			"\r\ngetippaext   - To check current ippa extension"
+                            			"\r\nget detail   - To check system details\r\n\r\n>>> ";
                             	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                             	tcp_output(tpcb);
                             }
-                            else if (strcmp(client->command, "logout") == 0)
-                            {
-                                static const char logout_screen[] = "\033[2J\033[H"
-                                    "Username: ";
-
-                                uint8_t echo_restore[] =
-                                {
-                                    TELNET_IAC,
-                                    TELNET_WONT,
-                                    TELNET_ECHO
-                                };
-
-                                client->username_len = 0;
-                                client->password_len = 0;
-                                client->command_len = 0;
-
-                                client->login_state = TELNET_LOGIN_USERNAME;
-
-                                tcp_write(tpcb, echo_restore, sizeof(echo_restore), TCP_WRITE_FLAG_COPY);
-                                tcp_write(tpcb, logout_screen, sizeof(logout_screen) - 1, TCP_WRITE_FLAG_COPY);
-                            }
                             else
                             {
-                                static const char unknown[] = "\r\n\r\n>>> ";
-
-                                tcp_write(tpcb, unknown, sizeof(unknown) - 1, TCP_WRITE_FLAG_COPY);
+                                static const char response[] = "\r\nUnknown Command\r\n\r\n>>> ";
+                                tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                             }
 
                             client->command_len = 0;

@@ -25,4 +25,7 @@ HAL_StatusTypeDef IP_Persist_Load_Ext(uint32_t *lcgateext,
 HAL_StatusTypeDef IP_Persist_Save_Ext(uint32_t lcgateext,
                                       uint32_t ippaext);
 
+uint32_t IP_Persist_Load_Manager_IP(void);
+HAL_StatusTypeDef IP_Persist_Save_Manager_IP(uint32_t manager_ip);
+
 #endif

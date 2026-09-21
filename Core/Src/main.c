@@ -75,7 +75,6 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 
 uint8_t keyboardReport[8];
 
-static uint32_t last_dhcp_ip = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -171,43 +170,21 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-  ip_addr_t ipaddr, netmask, gw;
-  ip4_addr_t default_ip;
-  ip4_addr_t saved_ip;
-  IP_Mode_t ip_mode;
+  /* Static network configuration */
+  ip4_addr_t ipaddr;
+  ip4_addr_t netmask;
+  ip4_addr_t gw;
 
-  IP4_ADDR(&default_ip, 192, 168, 80, 120);
+  IP4_ADDR(&ipaddr, 192, 168, 80, 120);
   IP4_ADDR(&netmask, 255, 255, 255, 0);
   IP4_ADDR(&gw, 192, 168, 80, 254);
 
-  if (IP_Persist_Init(&saved_ip, &default_ip) != HAL_OK)
-  {
-      Error_Handler();
-  }
-
-  if (IP_Persist_Load_Mode(&ip_mode) != HAL_OK)
-  {
-      Error_Handler();
-  }
-
-  if (ip_mode == IP_MODE_DHCP)
-  {
-      /* DHCP mode */
-	  netif_set_up(&gnetif);
-      dhcp_start(&gnetif);
-  }
-  else
-  {
-      /* Static IP mode */
-      ipaddr = saved_ip;
-      dhcp_stop(&gnetif);
-      netif_set_addr(&gnetif, &ipaddr, &netmask, &gw);
-      netif_set_up(&gnetif);
-  }
-
+  /* Disable DHCP and configure static IP */
+  dhcp_stop(&gnetif);
+  netif_set_addr(&gnetif, &ipaddr, &netmask, &gw);
   netif_set_up(&gnetif);
 
-  //SNMP agent setup
+  /* SNMP agent setup */
   static const struct snmp_mib *mibs[] =
   {
       &mib2,
@@ -218,7 +195,18 @@ int main(void)
   snmp_set_mibs(mibs, LWIP_ARRAYSIZE(mibs));
 
   ip_addr_t manager_ip;
-  IP4_ADDR(&manager_ip, 192, 168, 80, 7);
+
+  uint32_t saved_manager_ip = IP_Persist_Load_Manager_IP();
+
+  if (saved_manager_ip != 0)
+  {
+      manager_ip.addr = saved_manager_ip;
+  }
+  else
+  {
+      IP4_ADDR(&manager_ip, 192, 168, 80, 7);
+  }
+
   snmp_trap_dst_ip_set(0, &manager_ip);
   snmp_trap_dst_enable(0, 1);
 
@@ -229,15 +217,15 @@ int main(void)
 
   snmp_init();
 
-  //Telnet/TCP server init
+  /* Telnet/TCP server init */
   telnet_server_init();
 
-  //keyboard hid init
+  /* Keyboard HID init */
   Keyboard_Matrix_Init();
 
   HAL_TIM_Base_Start_IT(&htim6);
 
-  //GPIO I/P detect init
+  /* GPIO input detection init */
   GPIO_Control_Init();
   /* USER CODE END 2 */
 
@@ -255,18 +243,6 @@ int main(void)
 
 	  //KEYBOARD HID
 	  Keyboard_Matrix_Process();
-
-	  //Print DHCP IP
-	  if (ip_mode == IP_MODE_DHCP)
-	  {
-	      uint32_t current_ip = gnetif.ip_addr.addr;
-
-	      if (current_ip != 0 && current_ip != last_dhcp_ip)
-	      {
-	          printf("DHCP IP Address: %s\r\n", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
-	          last_dhcp_ip = current_ip;
-	      }
-	  }
 
 	  //BMS
 	  static uint32_t lastBMS = 0;
