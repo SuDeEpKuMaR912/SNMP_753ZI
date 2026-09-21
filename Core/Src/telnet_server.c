@@ -252,7 +252,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                          "IP Address: %s\r\n"
                                          "Netmask:    %s\r\n"
                                          "Gateway:    %s\r\n"
-                                         "STM UID:    %08lX-%08lX-%08lX\r\n"
+                                         "UUID:       %08lX-%08lX-%08lX\r\n"
                                          "\r\n>>> ", ip_str, mask_str, gw_str, (unsigned long)uid0, (unsigned long)uid1, (unsigned long)uid2);
 
                                 tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
@@ -395,21 +395,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                         netif_set_addr(&gnetif, &new_ip, &new_mask, &new_gw);
                                     }
                                 }
-                                else
-                                {
-                                    static const char error[] =
-                                        "\r\nInvalid network configuration.\r\n"
-                                        "\r\n"
-                                        "Usage:\r\n"
-                                        "setstatic <IP>\r\n"
-                                        "setstatic <IP> <MASK>\r\n"
-                                        "setstatic <IP> <MASK> <GATEWAY>\r\n"
-                                        "\r\n>>> ";
-
-                                    tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
-                                    tcp_output(tpcb);
-                                }
-
                             setstatic_done:
                                 ;
                             }
@@ -486,8 +471,15 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             else if (strcmp(client->command, "help") == 0)
                             {
                             	static const char response[] =
-                            			"\r\nAvailable Commands:\r\nip_a\r\ngetmac\r\nsetstatic\r\ndhcp\r\nset lcgateext\r\nget lcgateext\r\n"
-                            			"set ippaext\r\nget ippaext\r\nlogout\r\n\r\n>>> ";
+                            			"\r\nAvailable Commands:\r\nip_a: To view current ip, netmask, gateway and uuid"
+                            			"\r\ngetmac: To view mac address"
+                            			"\r\nsetstatic: To set static ip, eg: setstatic 192.168.80.123 255.255.255.0 192.168.80.254"
+                            			"\r\ndhcp: To switch to dhcp ip address assignment"
+                            			"\r\nset lcgateext: To set lc gate extension"
+                            			"\r\nget lcgateext: To view current lc gate extension"
+                            			"\r\nset ippaext: To set ippa extension"
+                            			"\r\nget ippaext: To view current ippa extension"
+                            			"\r\nlogout\r\n\r\n>>> ";
                             	tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                             	tcp_output(tpcb);
                             }
@@ -514,7 +506,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             }
                             else
                             {
-                                static const char unknown[] = "\r\nUnknown command.\r\n\r\n>>> ";
+                                static const char unknown[] = "\r\n\r\n>>> ";
 
                                 tcp_write(tpcb, unknown, sizeof(unknown) - 1, TCP_WRITE_FLAG_COPY);
                             }

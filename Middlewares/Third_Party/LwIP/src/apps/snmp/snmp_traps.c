@@ -200,10 +200,10 @@ snmp_send_trap(const struct snmp_obj_id *eoid, s32_t generic_trap, s32_t specifi
 
     	  request.msg_security_model = 3;
 
-    	  memcpy(request.msg_user_name, "sudeepk",
-    	         sizeof("sudeepk") - 1);
+    	  memcpy(request.msg_user_name, "admin",
+    	         sizeof("admin") - 1);
 
-    	  request.msg_user_name_len = sizeof("sudeepk") - 1;
+    	  request.msg_user_name_len = sizeof("admin") - 1;
     	  request.context_name_len = 0;
 
     	  request.request_out_type = SNMP_ASN1_CLASS_CONTEXT | SNMP_ASN1_CONTENTTYPE_CONSTRUCTED | SNMP_ASN1_CONTEXT_PDU_V2_TRAP;

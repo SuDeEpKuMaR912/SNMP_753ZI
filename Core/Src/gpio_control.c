@@ -40,28 +40,17 @@ void GPIO_Control_Process(void)
     current_gpio_state =
         (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6) == GPIO_PIN_SET) ? 1 : 0;
 
-
-    /*
-     * PB6 HIGH → Green OFF, Red ON → CLOSE
-     */
     if (current_gpio_state == 1)
     {
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET);
     }
-    /*
-     * PB6 LOW → Green ON, Red OFF → OPEN
-     */
     else
     {
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET);
     }
 
-
-    /*
-     * Send SNMP trap only when GPIO state changes.
-     */
     if (gpio_initialized && current_gpio_state != previous_gpio_state)
     {
         struct snmp_obj_id eoid;
@@ -109,7 +98,7 @@ void GPIO_Control_Process(void)
         /* Create trap information string */
         snprintf(gpio_info,
                  sizeof(gpio_info),
-                 "GPIO: %s, LC Gate Ext: %lu, IPPA Ext: %lu, STM UID: %08lX-%08lX-%08lX",
+                 "%s, LC Gate Ext: %lu, IPPA Ext: %lu, UUID: %08lX-%08lX-%08lX",
                  gpio_state,
                  (unsigned long)lcgateext,
                  (unsigned long)ippaext,
