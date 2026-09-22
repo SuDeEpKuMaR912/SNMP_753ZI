@@ -80,104 +80,100 @@ static const char *telnet_commands[] =
 
 #define TELNET_COMMAND_COUNT (sizeof(telnet_commands) / sizeof(telnet_commands[0]))
 
-static void telnet_cycle_completion(
+static void telnet_show_completion(
     struct tcp_pcb *tpcb,
     struct telnet_client *client
 )
 {
     size_t i;
-    size_t search_index;
-    const char *selected_command = NULL;
-    size_t selected_len = 0;
+    size_t match_count = 0;
+    size_t matches[TELNET_COMMAND_COUNT];
 
-    /*
-     * First Tab press:
-     * Save the original typed prefix.
-     */
-    if (!client->completion_active)
-    {
-        memcpy(
-            client->completion_prefix,
-            client->command,
-            client->command_len
-        );
+    char prefix[64];
+    char response[512];
 
-        client->completion_prefix[client->command_len] = '\0';
+    size_t prefix_len;
+    size_t response_len = 0;
 
-        client->completion_prefix_len = client->command_len;
-        client->completion_index = 0;
-        client->completion_active = 1;
-    }
-
-    /*
-     * Search for the next matching command.
-     */
-    for (i = 0; i < TELNET_COMMAND_COUNT; i++)
-    {
-        search_index =
-            (client->completion_index + i) % TELNET_COMMAND_COUNT;
-
-        if (strncmp(
-                client->completion_prefix,
-                telnet_commands[search_index],
-                client->completion_prefix_len
-            ) == 0)
-        {
-            selected_command = telnet_commands[search_index];
-            selected_len = strlen(selected_command);
-
-            client->completion_index =
-                (search_index + 1) % TELNET_COMMAND_COUNT;
-
-            break;
-        }
-    }
-
-    /*
-     * No matching command found.
-     */
-    if (selected_command == NULL)
+    if (client->cursor_pos != client->command_len)
     {
         return;
     }
 
-    /*
-     * Erase the currently displayed command.
-     * Do not erase the >>> prompt.
-     */
-    for (i = 0; i < client->command_len; i++)
-    {
-        static const char backspace[] = "\b \b";
+    prefix_len = client->command_len;
 
-        tcp_write(
-            tpcb,
-            backspace,
-            sizeof(backspace) - 1,
-            TCP_WRITE_FLAG_COPY
-        );
+    memcpy(prefix, client->command, prefix_len);
+
+    prefix[prefix_len] = '\0';
+
+    for (i = 0; i < TELNET_COMMAND_COUNT; i++)
+    {
+        if (strncmp(prefix, telnet_commands[i], prefix_len) == 0)
+        {
+            matches[match_count] = i;
+            match_count++;
+        }
     }
 
-    /*
-     * Replace the command buffer with the selected command.
-     */
-    memcpy(
-        client->command,
-        selected_command,
-        selected_len
-    );
+    if (match_count == 0)
+    {
+        return;
+    }
 
-    client->command[selected_len] = '\0';
-    client->command_len = selected_len;
+    if (match_count == 1)
+    {
+        const char *selected_command;
+        size_t selected_len;
 
-    /*
-     * Display the selected command.
-     */
-    tcp_write(
-        tpcb,
-        selected_command,
-        selected_len,
-        TCP_WRITE_FLAG_COPY
-    );
+        selected_command = telnet_commands[matches[0]];
+        selected_len = strlen(selected_command);
+
+        if (selected_len == client->command_len)
+        {
+            return;
+        }
+
+        for (i = 0; i < client->command_len; i++)
+        {
+            static const char backspace[] = "\b \b";
+
+            tcp_write(tpcb, backspace, sizeof(backspace) - 1, TCP_WRITE_FLAG_COPY);
+        }
+
+        memcpy(client->command, selected_command, selected_len);
+
+        client->command_len = selected_len;
+        client->cursor_pos = selected_len;
+
+        client->command[selected_len] = '\0';
+
+        tcp_write(tpcb, selected_command, selected_len, TCP_WRITE_FLAG_COPY);
+
+        tcp_output(tpcb);
+
+        return;
+    }
+
+    response_len += snprintf(&response[response_len], sizeof(response) - response_len, "\r\n");
+
+    for (i = 0; i < match_count; i++)
+    {
+        response_len += snprintf(&response[response_len], sizeof(response) - response_len, "%-20s", telnet_commands[matches[i]]);
+
+        if ((i + 1) % 3 == 0)
+        {
+            response_len += snprintf(&response[response_len], sizeof(response) - response_len, "\r\n");
+        }
+    }
+
+    if (match_count % 3 != 0)
+    {
+        response_len += snprintf(&response[response_len], sizeof(response) - response_len, "\r\n");
+    }
+
+    response_len += snprintf(&response[response_len], sizeof(response) - response_len, ">>> %s", client->command);
+
+    tcp_write(tpcb, response, response_len, TCP_WRITE_FLAG_COPY);
 
     tcp_output(tpcb);
 }
@@ -247,19 +243,12 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
         {
            case TELNET_STATE_ESC:
 
-            /*
-             * ANSI escape sequences normally begin with:
-             *
-             * ESC [
-             */
-
             if (data[i] == '[')
             {
                 client->telnet_state = TELNET_STATE_ESC_BRACKET;
             }
             else
             {
-                /* Unknown escape sequence */
                 client->telnet_state = TELNET_STATE_DATA;
             }
 
@@ -267,54 +256,32 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
            case TELNET_STATE_ESC_BRACKET:
            {
-               static const char left_arrow[] = "\x1B[D";
-               static const char right_arrow[] = "\x1B[C";
+               static const char left_arrow[]  = "\x1B[1D";
+               static const char right_arrow[] = "\x1B[1C";
 
                if (data[i] == 'D')
                {
-                   /* Left arrow */
-
                    if (client->cursor_pos > 0)
                    {
                        client->cursor_pos--;
-
-                       tcp_write(
-                           tpcb,
-                           left_arrow,
-                           sizeof(left_arrow) - 1,
-                           TCP_WRITE_FLAG_COPY
-                       );
-
+                       tcp_write(tpcb, left_arrow, sizeof(left_arrow) - 1, TCP_WRITE_FLAG_COPY);
                        tcp_output(tpcb);
                    }
                }
                else if (data[i] == 'C')
                {
-                   /* Right arrow */
-
                    if (client->cursor_pos < client->command_len)
                    {
                        client->cursor_pos++;
-
-                       tcp_write(
-                           tpcb,
-                           right_arrow,
-                           sizeof(right_arrow) - 1,
-                           TCP_WRITE_FLAG_COPY
-                       );
-
+                       tcp_write(tpcb, right_arrow, sizeof(right_arrow) - 1, TCP_WRITE_FLAG_COPY);
                        tcp_output(tpcb);
                    }
                }
                else if (data[i] == 'A' || data[i] == 'B')
                {
-                   /*
-                    * Ignore Up and Down arrows for now.
-                    */
                }
 
                client->telnet_state = TELNET_STATE_DATA;
-
                break;
            }
             case TELNET_STATE_DATA:
@@ -369,7 +336,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         {
                             client->username[client->username_len++] = data[i];
 
-                            /* Echo username character to Telnet client */
                             tcp_write(tpcb, &data[i], 1, TCP_WRITE_FLAG_COPY);
                             tcp_output(tpcb);
                         }
@@ -398,9 +364,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 };
 
                                 tcp_write(tpcb, echo_restore, sizeof(echo_restore), TCP_WRITE_FLAG_COPY);
-
                                 tcp_write(tpcb, welcome_screen, sizeof(welcome_screen) - 1, TCP_WRITE_FLAG_COPY);
-
                                 client->login_state = TELNET_LOGIN_AUTHENTICATED;
                             }
                             else
@@ -443,12 +407,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             {
                                 static const char response[] = "\r\n>>> ";
 
-                                tcp_write(
-                                    tpcb,
-                                    response,
-                                    sizeof(response) - 1,
-                                    TCP_WRITE_FLAG_COPY
-                                );
+                                tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                             }
                             else if (strcmp(client->command, "ip a") == 0)
                             {
@@ -561,10 +520,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     {
                                         if (!ip4addr_aton(mask_string, &new_mask) || !ip4addr_aton(gw_string, &new_gw))
                                         {
-                                            static const char error[] =
-                                                "\r\nInvalid subnet mask or gateway.\r\n"
-                                                "\r\n>>> ";
-
+                                            static const char error[] = "\r\nInvalid subnet mask or gateway.\r\n\r\n>>> ";
                                             tcp_write(tpcb, error, sizeof(error) - 1, TCP_WRITE_FLAG_COPY);
                                             tcp_output(tpcb);
                                             goto setstatic_done;
@@ -615,20 +571,14 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             {
                                 uint32_t value;
 
-                                static const char response[] =
-                                    "\r\nLC Gate Ext set successfully.\r\n\r\n>>> ";
+                                static const char response[] = "\r\nLC Gate Ext set successfully.\r\n\r\n>>> ";
 
                                 if (sscanf(&client->command[13], "%lu", &value) == 1)
                                 {
                                     if (IP_Persist_Save_Ext(value, ippaext) == HAL_OK)
                                     {
                                         lcgateext = value;
-
-                                        tcp_write(tpcb,
-                                                  response,
-                                                  sizeof(response) - 1,
-                                                  TCP_WRITE_FLAG_COPY);
-
+                                        tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                                         tcp_output(tpcb);
                                     }
                                 }
@@ -643,20 +593,14 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             {
                                 uint32_t value;
 
-                                static const char response[] =
-                                    "\r\nIPPA Ext set successfully.\r\n\r\n>>> ";
+                                static const char response[] = "\r\nIPPA Ext set successfully.\r\n\r\n>>> ";
 
                                 if (sscanf(&client->command[11], "%lu", &value) == 1)
                                 {
                                     if (IP_Persist_Save_Ext(lcgateext, value) == HAL_OK)
                                     {
                                         ippaext = value;
-
-                                        tcp_write(tpcb,
-                                                  response,
-                                                  sizeof(response) - 1,
-                                                  TCP_WRITE_FLAG_COPY);
-
+                                        tcp_write(tpcb, response, sizeof(response) - 1, TCP_WRITE_FLAG_COPY);
                                         tcp_output(tpcb);
                                     }
                                 }
@@ -680,50 +624,24 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     if (status == HAL_OK)
                                     {
                                         ip_addr_t new_manager_ip;
-
                                         new_manager_ip.addr = new_manager_ip4.addr;
-
                                         snmp_trap_dst_ip_set(0, &new_manager_ip);
+                                        const char *response = "SNMP Manager IP saved successfully.\r\n\r\n>>> ";
 
-                                        const char *response =
-                                            "SNMP Manager IP saved successfully.\r\n\r\n>>> ";
-
-                                        tcp_write(
-                                            tpcb,
-                                            response,
-                                            strlen(response),
-                                            TCP_WRITE_FLAG_COPY
-                                        );
-
+                                        tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                                         tcp_output(tpcb);
                                     }
                                     else
                                     {
-                                        const char *response =
-                                            "Error: Failed to save SNMP Manager IP.\r\n\r\n>>> ";
-
-                                        tcp_write(
-                                            tpcb,
-                                            response,
-                                            strlen(response),
-                                            TCP_WRITE_FLAG_COPY
-                                        );
-
+                                        const char *response = "Error: Failed to save SNMP Manager IP.\r\n\r\n>>> ";
+                                        tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                                         tcp_output(tpcb);
                                     }
                                 }
                                 else
                                 {
-                                    const char *response =
-                                        "Invalid IP address. Use: settrapip 192.168.80.7\r\n\r\n>>> ";
-
-                                    tcp_write(
-                                        tpcb,
-                                        response,
-                                        strlen(response),
-                                        TCP_WRITE_FLAG_COPY
-                                    );
-
+                                    const char *response = "Invalid IP address. Use: settrapip 192.168.80.7\r\n\r\n>>> ";
+                                    tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                                     tcp_output(tpcb);
                                 }
                             }
@@ -744,26 +662,10 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     IP4_ADDR(&manager_ip4, 192, 168, 80, 7);
                                 }
 
-                                ip4addr_ntoa_r(
-                                    &manager_ip4,
-                                    manager_ip_str,
-                                    sizeof(manager_ip_str)
-                                );
+                                ip4addr_ntoa_r(&manager_ip4, manager_ip_str, sizeof(manager_ip_str));
 
-                                snprintf(
-                                    response,
-                                    sizeof(response),
-                                    "\r\nSNMP Manager IP: %s\r\n\r\n>>> ",
-                                    manager_ip_str
-                                );
-
-                                tcp_write(
-                                    tpcb,
-                                    response,
-                                    strlen(response),
-                                    TCP_WRITE_FLAG_COPY
-                                );
-
+                                snprintf(response, sizeof(response), "\r\nSNMP Manager IP: %s\r\n\r\n>>> ", manager_ip_str);
+                                tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                                 tcp_output(tpcb);
                             }
                             else if (strcmp(client->command, "get detail") == 0)
@@ -783,23 +685,9 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 ip4_addr_t manager_ip4;
 
                                 /* Get current network configuration */
-                                ip4addr_ntoa_r(
-                                    netif_ip4_addr(&gnetif),
-                                    ip_str,
-                                    sizeof(ip_str)
-                                );
-
-                                ip4addr_ntoa_r(
-                                    netif_ip4_netmask(&gnetif),
-                                    mask_str,
-                                    sizeof(mask_str)
-                                );
-
-                                ip4addr_ntoa_r(
-                                    netif_ip4_gw(&gnetif),
-                                    gw_str,
-                                    sizeof(gw_str)
-                                );
+                                ip4addr_ntoa_r(netif_ip4_addr(&gnetif), ip_str, sizeof(ip_str));
+                                ip4addr_ntoa_r(netif_ip4_netmask(&gnetif), mask_str, sizeof(mask_str));
+                                ip4addr_ntoa_r(netif_ip4_gw(&gnetif), gw_str, sizeof(gw_str));
 
                                 /* Get MCU UUID */
                                 uid0 = HAL_GetUIDw0();
@@ -821,10 +709,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 ip4addr_ntoa_r(&manager_ip4, manager_ip_str, sizeof(manager_ip_str));
 
                                 /* Prepare complete system details */
-                                snprintf(
-                                    response,
-                                    sizeof(response),
-
+                                snprintf(response, sizeof(response),
                                     "\r\n"
                                     "IP Address      : %s\r\n"
                                     "Netmask         : %s\r\n"
@@ -835,25 +720,10 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     "IPPA Ext        : %lu\r\n"
                                     "SNMP Manager IP : %s\r\n"
                                     "\r\n>>> ",
-
-                                    ip_str,
-                                    mask_str,
-                                    gw_str,
-
-                                    gnetif.hwaddr[0],
-                                    gnetif.hwaddr[1],
-                                    gnetif.hwaddr[2],
-                                    gnetif.hwaddr[3],
-                                    gnetif.hwaddr[4],
-                                    gnetif.hwaddr[5],
-
-                                    (unsigned long)uid0,
-                                    (unsigned long)uid1,
-                                    (unsigned long)uid2,
-
-                                    (unsigned long)lcgateext,
-                                    (unsigned long)ippaext,
-
+                                    ip_str, mask_str, gw_str,
+                                    gnetif.hwaddr[0], gnetif.hwaddr[1], gnetif.hwaddr[2], gnetif.hwaddr[3], gnetif.hwaddr[4], gnetif.hwaddr[5],
+                                    (unsigned long)uid0, (unsigned long)uid1, (unsigned long)uid2,
+                                    (unsigned long)lcgateext, (unsigned long)ippaext,
                                     manager_ip_str
                                 );
 
@@ -886,6 +756,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                             client->command_len = 0;
                             client->command[0] = '\0';
+                            client->cursor_pos = 0;
 
                             client->completion_prefix_len = 0;
                             client->completion_index = 0;
@@ -896,19 +767,40 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         }
                         else if (data[i] == 0x08 || data[i] == 0x7F)
                         {
-                            if (client->command_len > 0)
+                            if (client->cursor_pos > 0)
                             {
+                                uint8_t tail_len;
+                                uint8_t j;
+
+                                memmove(&client->command[client->cursor_pos - 1], &client->command[client->cursor_pos], client->command_len - client->cursor_pos);
+
                                 client->command_len--;
+                                client->cursor_pos--;
                                 client->command[client->command_len] = '\0';
+                                tail_len = client->command_len - client->cursor_pos;
+
+                                static const char backspace[] = "\b";
+                                static const char erase_char[] = " ";
+
+                                tcp_write(tpcb, backspace, 1, TCP_WRITE_FLAG_COPY);
+
+                                if (tail_len > 0)
+                                {
+                                    tcp_write(tpcb, &client->command[client->cursor_pos], tail_len, TCP_WRITE_FLAG_COPY);
+                                }
+
+                                tcp_write(tpcb, erase_char, 1, TCP_WRITE_FLAG_COPY);
+
+                                for (j = 0; j < tail_len + 1; j++)
+                                {
+                                    tcp_write(tpcb, backspace, 1, TCP_WRITE_FLAG_COPY);
+                                }
 
                                 client->completion_active = 0;
                                 client->completion_index = 0;
                                 client->completion_prefix_len = 0;
                                 client->completion_prefix[0] = '\0';
 
-                                static const char backspace[] = "\b \b";
-
-                                tcp_write(tpcb, backspace, sizeof(backspace) - 1, TCP_WRITE_FLAG_COPY);
                                 tcp_output(tpcb);
                             }
 
@@ -917,26 +809,46 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         else if (data[i] == 0x09)
                         {
                             client->command[client->command_len] = '\0';
-                            telnet_cycle_completion(tpcb, client);
+                            telnet_show_completion(tpcb, client);
                             continue;
                         }
                         else if (client->command_len < sizeof(client->command) - 1)
                         {
+                            uint8_t tail_len;
+                            uint8_t j;
+
+                            static const char backspace[] = "\b";
+
                             client->completion_active = 0;
                             client->completion_index = 0;
                             client->completion_prefix_len = 0;
                             client->completion_prefix[0] = '\0';
 
-                            client->command[client->command_len++] = data[i];
+                            tail_len = client->command_len - client->cursor_pos;
+
+                            memmove(&client->command[client->cursor_pos + 1], &client->command[client->cursor_pos], tail_len);
+
+                            client->command[client->cursor_pos] = data[i];
+                            client->command_len++;
+                            client->cursor_pos++;
                             client->command[client->command_len] = '\0';
 
                             tcp_write(tpcb, &data[i], 1, TCP_WRITE_FLAG_COPY);
+
+                            if (tail_len > 0)
+                            {
+                                tcp_write(tpcb, &client->command[client->cursor_pos], tail_len, TCP_WRITE_FLAG_COPY);
+                            }
+
+                            for (j = 0; j < tail_len; j++)
+                            {
+                                tcp_write(tpcb, backspace, 1, TCP_WRITE_FLAG_COPY);
+                            }
                             tcp_output(tpcb);
                         }
                     }
 
                 }
-
                 break;
 
             case TELNET_STATE_IAC:
@@ -1068,7 +980,6 @@ void telnet_server_init(void)
 {
     struct tcp_pcb *pcb;
 
-    /* Load LC Gate Ext and IPPA Ext from Flash */
         if (IP_Persist_Load_Ext(&lcgateext, &ippaext) != HAL_OK)
         {
             lcgateext = 0;
