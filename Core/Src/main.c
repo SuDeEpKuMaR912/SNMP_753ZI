@@ -245,13 +245,7 @@ int main(void)
 	  Keyboard_Matrix_Process();
 
 	  //BMS
-	  static uint32_t lastBMS = 0;
-
-	  if (HAL_GetTick() - lastBMS >= 5000)
-	  {
-	      Read_BMS_Data();
-	      lastBMS = HAL_GetTick();
-	  }
+	  BMS_Process();
 
   }
   /* USER CODE END 3 */

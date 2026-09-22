@@ -24,6 +24,8 @@
 #define TELNET_STATE_DATA       0
 #define TELNET_STATE_IAC        1
 #define TELNET_STATE_COMMAND    2
+#define TELNET_STATE_ESC        3
+#define TELNET_STATE_ESC_BRACKET 4
 
 #define TELNET_LOGIN_USERNAME      0
 #define TELNET_LOGIN_PASSWORD      1
@@ -49,9 +51,136 @@ struct telnet_client
 
     char command[64];
     uint8_t command_len;
+    uint8_t cursor_pos;
+
+    char completion_prefix[64];
+    uint8_t completion_prefix_len;
+    uint8_t completion_index;
+    uint8_t completion_active;
 
     uint8_t last_was_cr;
 };
+
+/* List of available Telnet commands */
+static const char *telnet_commands[] =
+{
+    "ip a",
+    "dhcp",
+    "setstatic",
+    "getmac",
+    "setlcgateext",
+    "getlcgateext",
+    "setippaext",
+    "getippaext",
+    "settrapip",
+    "gettrapip",
+    "get detail",
+    "help"
+};
+
+#define TELNET_COMMAND_COUNT (sizeof(telnet_commands) / sizeof(telnet_commands[0]))
+
+static void telnet_cycle_completion(
+    struct tcp_pcb *tpcb,
+    struct telnet_client *client
+)
+{
+    size_t i;
+    size_t search_index;
+    const char *selected_command = NULL;
+    size_t selected_len = 0;
+
+    /*
+     * First Tab press:
+     * Save the original typed prefix.
+     */
+    if (!client->completion_active)
+    {
+        memcpy(
+            client->completion_prefix,
+            client->command,
+            client->command_len
+        );
+
+        client->completion_prefix[client->command_len] = '\0';
+
+        client->completion_prefix_len = client->command_len;
+        client->completion_index = 0;
+        client->completion_active = 1;
+    }
+
+    /*
+     * Search for the next matching command.
+     */
+    for (i = 0; i < TELNET_COMMAND_COUNT; i++)
+    {
+        search_index =
+            (client->completion_index + i) % TELNET_COMMAND_COUNT;
+
+        if (strncmp(
+                client->completion_prefix,
+                telnet_commands[search_index],
+                client->completion_prefix_len
+            ) == 0)
+        {
+            selected_command = telnet_commands[search_index];
+            selected_len = strlen(selected_command);
+
+            client->completion_index =
+                (search_index + 1) % TELNET_COMMAND_COUNT;
+
+            break;
+        }
+    }
+
+    /*
+     * No matching command found.
+     */
+    if (selected_command == NULL)
+    {
+        return;
+    }
+
+    /*
+     * Erase the currently displayed command.
+     * Do not erase the >>> prompt.
+     */
+    for (i = 0; i < client->command_len; i++)
+    {
+        static const char backspace[] = "\b \b";
+
+        tcp_write(
+            tpcb,
+            backspace,
+            sizeof(backspace) - 1,
+            TCP_WRITE_FLAG_COPY
+        );
+    }
+
+    /*
+     * Replace the command buffer with the selected command.
+     */
+    memcpy(
+        client->command,
+        selected_command,
+        selected_len
+    );
+
+    client->command[selected_len] = '\0';
+    client->command_len = selected_len;
+
+    /*
+     * Display the selected command.
+     */
+    tcp_write(
+        tpcb,
+        selected_command,
+        selected_len,
+        TCP_WRITE_FLAG_COPY
+    );
+
+    tcp_output(tpcb);
+}
 
 static void get_default_network_config(const ip4_addr_t *ip, ip4_addr_t *mask, ip4_addr_t *gateway)
 {
@@ -116,11 +245,87 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
     {
         switch (client->telnet_state)
         {
+           case TELNET_STATE_ESC:
+
+            /*
+             * ANSI escape sequences normally begin with:
+             *
+             * ESC [
+             */
+
+            if (data[i] == '[')
+            {
+                client->telnet_state = TELNET_STATE_ESC_BRACKET;
+            }
+            else
+            {
+                /* Unknown escape sequence */
+                client->telnet_state = TELNET_STATE_DATA;
+            }
+
+            break;
+
+           case TELNET_STATE_ESC_BRACKET:
+           {
+               static const char left_arrow[] = "\x1B[D";
+               static const char right_arrow[] = "\x1B[C";
+
+               if (data[i] == 'D')
+               {
+                   /* Left arrow */
+
+                   if (client->cursor_pos > 0)
+                   {
+                       client->cursor_pos--;
+
+                       tcp_write(
+                           tpcb,
+                           left_arrow,
+                           sizeof(left_arrow) - 1,
+                           TCP_WRITE_FLAG_COPY
+                       );
+
+                       tcp_output(tpcb);
+                   }
+               }
+               else if (data[i] == 'C')
+               {
+                   /* Right arrow */
+
+                   if (client->cursor_pos < client->command_len)
+                   {
+                       client->cursor_pos++;
+
+                       tcp_write(
+                           tpcb,
+                           right_arrow,
+                           sizeof(right_arrow) - 1,
+                           TCP_WRITE_FLAG_COPY
+                       );
+
+                       tcp_output(tpcb);
+                   }
+               }
+               else if (data[i] == 'A' || data[i] == 'B')
+               {
+                   /*
+                    * Ignore Up and Down arrows for now.
+                    */
+               }
+
+               client->telnet_state = TELNET_STATE_DATA;
+
+               break;
+           }
             case TELNET_STATE_DATA:
 
                 if (data[i] == TELNET_IAC)
                 {
                     client->telnet_state = TELNET_STATE_IAC;
+                }
+                else if (data[i] == 0x1B)
+                {
+                    client->telnet_state = TELNET_STATE_ESC;
                 }
                 else
                 {
@@ -143,7 +348,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                     {
                         if (data[i] == '\r' || data[i] == '\n')
                         {
-                            static const char password_prompt[] = "\rPassword: ";
+                            static const char password_prompt[] = "\r\nPassword: ";
 
                             client->username[client->username_len] = '\0';
                             client->password_len = 0;
@@ -163,6 +368,10 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         else if (client->username_len < sizeof(client->username) - 1)
                         {
                             client->username[client->username_len++] = data[i];
+
+                            /* Echo username character to Telnet client */
+                            tcp_write(tpcb, &data[i], 1, TCP_WRITE_FLAG_COPY);
+                            tcp_output(tpcb);
                         }
                     }
                     else if (client->login_state == TELNET_LOGIN_PASSWORD)
@@ -609,11 +818,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     IP4_ADDR(&manager_ip4, 192, 168, 80, 7);
                                 }
 
-                                ip4addr_ntoa_r(
-                                    &manager_ip4,
-                                    manager_ip_str,
-                                    sizeof(manager_ip_str)
-                                );
+                                ip4addr_ntoa_r(&manager_ip4, manager_ip_str, sizeof(manager_ip_str));
 
                                 /* Prepare complete system details */
                                 snprintf(
@@ -652,13 +857,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                     manager_ip_str
                                 );
 
-                                tcp_write(
-                                    tpcb,
-                                    response,
-                                    strlen(response),
-                                    TCP_WRITE_FLAG_COPY
-                                );
-
+                                tcp_write(tpcb, response, strlen(response), TCP_WRITE_FLAG_COPY);
                                 tcp_output(tpcb);
                             }
                             else if (strcmp(client->command, "help") == 0)
@@ -686,11 +885,53 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             }
 
                             client->command_len = 0;
+                            client->command[0] = '\0';
+
+                            client->completion_prefix_len = 0;
+                            client->completion_index = 0;
+                            client->completion_active = 0;
+                            client->completion_prefix[0] = '\0';
+
                             tcp_output(tpcb);
+                        }
+                        else if (data[i] == 0x08 || data[i] == 0x7F)
+                        {
+                            if (client->command_len > 0)
+                            {
+                                client->command_len--;
+                                client->command[client->command_len] = '\0';
+
+                                client->completion_active = 0;
+                                client->completion_index = 0;
+                                client->completion_prefix_len = 0;
+                                client->completion_prefix[0] = '\0';
+
+                                static const char backspace[] = "\b \b";
+
+                                tcp_write(tpcb, backspace, sizeof(backspace) - 1, TCP_WRITE_FLAG_COPY);
+                                tcp_output(tpcb);
+                            }
+
+                            continue;
+                        }
+                        else if (data[i] == 0x09)
+                        {
+                            client->command[client->command_len] = '\0';
+                            telnet_cycle_completion(tpcb, client);
+                            continue;
                         }
                         else if (client->command_len < sizeof(client->command) - 1)
                         {
+                            client->completion_active = 0;
+                            client->completion_index = 0;
+                            client->completion_prefix_len = 0;
+                            client->completion_prefix[0] = '\0';
+
                             client->command[client->command_len++] = data[i];
+                            client->command[client->command_len] = '\0';
+
+                            tcp_write(tpcb, &data[i], 1, TCP_WRITE_FLAG_COPY);
+                            tcp_output(tpcb);
                         }
                     }
 
@@ -806,6 +1047,11 @@ static err_t telnet_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
     client->password_len = 0;
     client->last_was_cr = 0;
     client->command_len = 0;
+    client->cursor_pos = 0;
+    client->completion_prefix_len = 0;
+    client->completion_index = 0;
+    client->completion_active = 0;
+    client->completion_prefix[0] = '\0';
 
     static const char username_prompt[] = "Username: ";
 
