@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "main.h"
+#include "cli_commands.h"
 
 #define TELNET_PORT 23
 
@@ -63,25 +64,6 @@ struct telnet_client
     uint8_t last_was_cr;
 };
 
-/* List of available Telnet commands */
-static const char *telnet_commands[] =
-{
-    "ip a",
-    "dhcp",
-    "setstatic",
-    "getmac",
-    "setlcgateext",
-    "getlcgateext",
-    "setippaext",
-    "getippaext",
-    "settrapip",
-    "gettrapip",
-    "get detail",
-    "help"
-};
-
-#define TELNET_COMMAND_COUNT (sizeof(telnet_commands) / sizeof(telnet_commands[0]))
-
 static void telnet_show_completion(
     struct tcp_pcb *tpcb,
     struct telnet_client *client
@@ -89,7 +71,7 @@ static void telnet_show_completion(
 {
     size_t i;
     size_t match_count = 0;
-    size_t matches[TELNET_COMMAND_COUNT];
+    size_t matches[cli_command_count];
 
     char prefix[64];
     char response[512];
@@ -103,14 +85,12 @@ static void telnet_show_completion(
     }
 
     prefix_len = client->command_len;
-
     memcpy(prefix, client->command, prefix_len);
-
     prefix[prefix_len] = '\0';
 
-    for (i = 0; i < TELNET_COMMAND_COUNT; i++)
+    for (i = 0; i < cli_command_count; i++)
     {
-        if (strncmp(prefix, telnet_commands[i], prefix_len) == 0)
+        if (strncmp(prefix, cli_commands[i].name, prefix_len) == 0)
         {
             matches[match_count] = i;
             match_count++;
@@ -127,7 +107,7 @@ static void telnet_show_completion(
         const char *selected_command;
         size_t selected_len;
 
-        selected_command = telnet_commands[matches[0]];
+        selected_command = cli_commands[matches[0]].name;
         selected_len = strlen(selected_command);
 
         if (selected_len == client->command_len)
@@ -143,16 +123,11 @@ static void telnet_show_completion(
         }
 
         memcpy(client->command, selected_command, selected_len);
-
         client->command_len = selected_len;
         client->cursor_pos = selected_len;
-
         client->command[selected_len] = '\0';
-
         tcp_write(tpcb, selected_command, selected_len, TCP_WRITE_FLAG_COPY);
-
         tcp_output(tpcb);
-
         return;
     }
 
@@ -160,7 +135,7 @@ static void telnet_show_completion(
 
     for (i = 0; i < match_count; i++)
     {
-        response_len += snprintf(&response[response_len], sizeof(response) - response_len, "%-20s", telnet_commands[matches[i]]);
+        response_len += snprintf(&response[response_len], sizeof(response) - response_len, "%-20s", cli_commands[matches[i]].name);
 
         if ((i + 1) % 3 == 0)
         {
@@ -216,7 +191,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
         {
             mem_free(client);
         }
-
         tcp_arg(tpcb, NULL);
         tcp_close(tpcb);
 
