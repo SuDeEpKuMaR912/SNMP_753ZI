@@ -32,12 +32,12 @@ static BMS_State_t bms_state = BMS_STATE_IDLE;
 static uint8_t  bms_frame[128];
 static uint16_t bms_idx = 0;
 static uint16_t bms_total_len = 0;
-static uint32_t bms_req_timer = 0;     /* gates how often a new request starts */
-static uint32_t bms_state_timer = 0;   /* per-state stall watchdog */
+static uint32_t bms_req_timer = 0;
+static uint32_t bms_state_timer = 0;
 
 #define BMS_REQUEST_INTERVAL_MS   5000U
-#define BMS_BYTE_POLL_TIMEOUT_MS  2U     /* worst-case block per call */
-#define BMS_FRAME_TIMEOUT_MS      1000U  /* abandon a stalled frame */
+#define BMS_BYTE_POLL_TIMEOUT_MS  2U
+#define BMS_FRAME_TIMEOUT_MS      1000U
 
 static void BMS_Decode_And_Report(uint8_t *p, uint16_t len);
 
@@ -54,14 +54,11 @@ void BMS_Process(void)
         }
         bms_req_timer = HAL_GetTick();
 
-        /* Flush any stray bytes sitting in the RX register — non-blocking */
         while (HAL_UART_Receive(&huart2, &ch, 1, 0) == HAL_OK) { }
 
-        /* 7 bytes @ 9600 baud ~= 7ms; bound the wait instead of
-           HAL_MAX_DELAY so a stuck line can never hang the loop. */
         if (HAL_UART_Transmit(&huart2, bms_cmd, sizeof(bms_cmd), 50) != HAL_OK)
         {
-            return; /* retry next interval */
+            return;
         }
 
         bms_idx = 0;
@@ -80,7 +77,6 @@ void BMS_Process(void)
                 bms_state_timer = HAL_GetTick();
                 bms_state = BMS_STATE_WAIT_HEADER;
             }
-            /* else: not our start byte, keep scanning */
         }
         else if (HAL_GetTick() - bms_state_timer >= BMS_FRAME_TIMEOUT_MS)
         {

@@ -20,6 +20,8 @@
 #define TELNET_DO    253
 #define TELNET_DONT  254
 #define TELNET_ECHO  1
+#define TELNET_LINEMODE 34
+#define TELNET_SGA   3
 
 #define TELNET_STATE_DATA       0
 #define TELNET_STATE_IAC        1
@@ -172,9 +174,7 @@ static void telnet_show_completion(
     }
 
     response_len += snprintf(&response[response_len], sizeof(response) - response_len, ">>> %s", client->command);
-
     tcp_write(tpcb, response, response_len, TCP_WRITE_FLAG_COPY);
-
     tcp_output(tpcb);
 }
 
@@ -356,12 +356,12 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             	    "\r\n"
                             	    ">>> ";
 
-                                uint8_t echo_restore[] =
-                                {
-                                    TELNET_IAC,
-                                    TELNET_WONT,
-                                    TELNET_ECHO
-                                };
+                            	uint8_t echo_restore[] =
+                            	{
+                            	    TELNET_IAC,
+                            	    TELNET_WILL,
+                            	    TELNET_ECHO
+                            	};
 
                                 tcp_write(tpcb, echo_restore, sizeof(echo_restore), TCP_WRITE_FLAG_COPY);
                                 tcp_write(tpcb, welcome_screen, sizeof(welcome_screen) - 1, TCP_WRITE_FLAG_COPY);
@@ -372,7 +372,7 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                             	uint8_t echo_restore[] =
                             	{
                             	    TELNET_IAC,
-                            	    TELNET_WONT,
+                            	    TELNET_WILL,
                             	    TELNET_ECHO
                             	};
 
@@ -689,12 +689,10 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                                 ip4addr_ntoa_r(netif_ip4_netmask(&gnetif), mask_str, sizeof(mask_str));
                                 ip4addr_ntoa_r(netif_ip4_gw(&gnetif), gw_str, sizeof(gw_str));
 
-                                /* Get MCU UUID */
                                 uid0 = HAL_GetUIDw0();
                                 uid1 = HAL_GetUIDw1();
                                 uid2 = HAL_GetUIDw2();
 
-                                /* Load SNMP Manager IP */
                                 saved_manager_ip = IP_Persist_Load_Manager_IP();
 
                                 if (saved_manager_ip != 0)
@@ -708,7 +706,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                                 ip4addr_ntoa_r(&manager_ip4, manager_ip_str, sizeof(manager_ip_str));
 
-                                /* Prepare complete system details */
                                 snprintf(response, sizeof(response),
                                     "\r\n"
                                     "IP Address      : %s\r\n"
@@ -803,7 +800,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
 
                                 tcp_output(tpcb);
                             }
-
                             continue;
                         }
                         else if (data[i] == 0x09)
@@ -873,33 +869,63 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
             case TELNET_STATE_COMMAND:
             {
                 uint8_t response[3];
+                response[0] = TELNET_IAC;
 
                 if (data[i] == TELNET_ECHO)
                 {
                     if (client->telnet_command == TELNET_DO)
                     {
+                        response[1] = TELNET_WILL;
+                        response[2] = TELNET_ECHO;
+
+                        tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
                     }
                     else if (client->telnet_command == TELNET_DONT)
                     {
-                        response[0] = TELNET_IAC;
                         response[1] = TELNET_WONT;
                         response[2] = TELNET_ECHO;
 
                         tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
                     }
-                    else if (client->telnet_command == TELNET_WILL || client->telnet_command == TELNET_WONT)
+                    else if (client->telnet_command == TELNET_WILL ||
+                             client->telnet_command == TELNET_WONT)
                     {
-                        response[0] = TELNET_IAC;
                         response[1] = TELNET_DONT;
                         response[2] = TELNET_ECHO;
-
                         tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
                     }
                 }
+
+                else if (data[i] == TELNET_SGA)
+                {
+                    if (client->telnet_command == TELNET_DO)
+                    {
+                        response[1] = TELNET_WILL;
+                        response[2] = TELNET_SGA;
+                        tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
+                    }
+                    else if (client->telnet_command == TELNET_DONT)
+                    {
+                        response[1] = TELNET_WONT;
+                        response[2] = TELNET_SGA;
+                        tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
+                    }
+                    else if (client->telnet_command == TELNET_WILL)
+                    {
+                        response[1] = TELNET_DO;
+                        response[2] = TELNET_SGA;
+                        tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
+                    }
+                    else if (client->telnet_command == TELNET_WONT)
+                    {
+                        response[1] = TELNET_DONT;
+                        response[2] = TELNET_SGA;
+                        tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
+                    }
+                }
+
                 else
                 {
-                    response[0] = TELNET_IAC;
-
                     if (client->telnet_command == TELNET_WILL || client->telnet_command == TELNET_WONT)
                     {
                         response[1] = TELNET_DONT;
@@ -912,13 +938,10 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                     response[2] = data[i];
                     tcp_write(tpcb, response, sizeof(response), TCP_WRITE_FLAG_COPY);
                 }
-
                 client->telnet_state = TELNET_STATE_DATA;
                 client->telnet_command = 0;
-
                 break;
             }
-
             default:
 
                 client->telnet_state = TELNET_STATE_DATA;
@@ -927,7 +950,6 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
     }
 
     tcp_output(tpcb);
-
     tcp_recved(tpcb, p->tot_len);
     pbuf_free(p);
 
@@ -964,6 +986,26 @@ static err_t telnet_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
     client->completion_index = 0;
     client->completion_active = 0;
     client->completion_prefix[0] = '\0';
+
+    static const uint8_t telnet_options[] =
+    {
+        /* Server will echo characters */
+        TELNET_IAC,
+        TELNET_WILL,
+        TELNET_ECHO,
+
+        /* Server will suppress Go Ahead */
+        TELNET_IAC,
+        TELNET_WILL,
+        TELNET_SGA,
+
+        /* Request client to suppress Go Ahead */
+        TELNET_IAC,
+        TELNET_DO,
+        TELNET_SGA
+    };
+
+    tcp_write(newpcb, telnet_options, sizeof(telnet_options), TCP_WRITE_FLAG_COPY);
 
     static const char username_prompt[] = "Username: ";
 
