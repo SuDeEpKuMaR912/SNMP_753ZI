@@ -20,66 +20,132 @@ static const u32_t bms_enterprise_oid[] =
     1, 3, 6, 1, 4, 1, 12345, 1
 };
 
-void Read_BMS_Data(void)
+typedef enum
+{
+    BMS_STATE_IDLE = 0,
+    BMS_STATE_WAIT_START,
+    BMS_STATE_WAIT_HEADER,
+    BMS_STATE_WAIT_BODY,
+} BMS_State_t;
+
+static BMS_State_t bms_state = BMS_STATE_IDLE;
+static uint8_t  bms_frame[128];
+static uint16_t bms_idx = 0;
+static uint16_t bms_total_len = 0;
+static uint32_t bms_req_timer = 0;
+static uint32_t bms_state_timer = 0;
+
+#define BMS_REQUEST_INTERVAL_MS   5000U
+#define BMS_BYTE_POLL_TIMEOUT_MS  2U
+#define BMS_FRAME_TIMEOUT_MS      1000U
+
+static void BMS_Decode_And_Report(uint8_t *p, uint16_t len);
+
+void BMS_Process(void)
 {
     uint8_t ch;
-    uint16_t len = 0;
-    uint8_t frame[128];
-    uint8_t *p = frame;
 
-    memset(frame, 0, sizeof(frame));
-
-    while(HAL_UART_Receive(&huart2, &ch, 1, 10) == HAL_OK);
-
-    HAL_UART_Transmit(&huart2, bms_cmd, sizeof(bms_cmd), HAL_MAX_DELAY);
-
-    while(1)
+    switch (bms_state)
     {
-        if(HAL_UART_Receive(&huart2, &ch, 1, 1000) != HAL_OK)
+    case BMS_STATE_IDLE:
+        if (HAL_GetTick() - bms_req_timer < BMS_REQUEST_INTERVAL_MS)
         {
-            printf("BMS Read Failed\r\n");
+            return;
+        }
+        bms_req_timer = HAL_GetTick();
+
+        while (HAL_UART_Receive(&huart2, &ch, 1, 0) == HAL_OK) { }
+
+        if (HAL_UART_Transmit(&huart2, bms_cmd, sizeof(bms_cmd), 50) != HAL_OK)
+        {
             return;
         }
 
-        if(ch == 0xDD)
+        bms_idx = 0;
+        memset(bms_frame, 0, sizeof(bms_frame));
+        bms_state_timer = HAL_GetTick();
+        bms_state = BMS_STATE_WAIT_START;
+        break;
+
+    case BMS_STATE_WAIT_START:
+        if (HAL_UART_Receive(&huart2, &ch, 1, BMS_BYTE_POLL_TIMEOUT_MS) == HAL_OK)
         {
-            frame[0] = ch;
-            break;
+            if (ch == 0xDD)
+            {
+                bms_frame[0] = ch;
+                bms_idx = 1;
+                bms_state_timer = HAL_GetTick();
+                bms_state = BMS_STATE_WAIT_HEADER;
+            }
         }
+        else if (HAL_GetTick() - bms_state_timer >= BMS_FRAME_TIMEOUT_MS)
+        {
+            printf("BMS Read Failed\r\n");
+            bms_state = BMS_STATE_IDLE;
+        }
+        break;
+
+    case BMS_STATE_WAIT_HEADER:
+        while (bms_idx < 4 &&
+               HAL_UART_Receive(&huart2, &bms_frame[bms_idx], 1, BMS_BYTE_POLL_TIMEOUT_MS) == HAL_OK)
+        {
+            bms_idx++;
+        }
+
+        if (bms_idx >= 4)
+        {
+            uint8_t dataLength = bms_frame[3];
+            bms_total_len = 4 + dataLength + 3;
+
+            if (bms_total_len > sizeof(bms_frame))
+            {
+                printf("Invalid frame length\r\n");
+                bms_state = BMS_STATE_IDLE;
+            }
+            else
+            {
+                bms_state_timer = HAL_GetTick();
+                bms_state = BMS_STATE_WAIT_BODY;
+            }
+        }
+        else if (HAL_GetTick() - bms_state_timer >= BMS_FRAME_TIMEOUT_MS)
+        {
+            printf("Header receive failed\r\n");
+            bms_state = BMS_STATE_IDLE;
+        }
+        break;
+
+    case BMS_STATE_WAIT_BODY:
+        while (bms_idx < bms_total_len &&
+               HAL_UART_Receive(&huart2, &bms_frame[bms_idx], 1, BMS_BYTE_POLL_TIMEOUT_MS) == HAL_OK)
+        {
+            bms_idx++;
+        }
+
+        if (bms_idx >= bms_total_len)
+        {
+            BMS_Decode_And_Report(bms_frame, bms_total_len);
+            bms_state = BMS_STATE_IDLE;
+        }
+        else if (HAL_GetTick() - bms_state_timer >= BMS_FRAME_TIMEOUT_MS)
+        {
+            printf("Remaining frame receive failed\r\n");
+            bms_state = BMS_STATE_IDLE;
+        }
+        break;
     }
+}
 
-    if(HAL_UART_Receive(&huart2, &frame[1], 3, 1000) != HAL_OK)
-    {
-        printf("Header receive failed\r\n");
-        return;
-    }
-
-    uint8_t dataLength = frame[3];
-    uint16_t totalLength = 4 + dataLength + 3;
-
-    if(totalLength > sizeof(frame))
-    {
-        printf("Invalid frame length\r\n");
-        return;
-    }
-
-    /* Receive remaining bytes */
-    if(HAL_UART_Receive(&huart2, &frame[4], totalLength - 4, 1000) != HAL_OK)
-    {
-        printf("Remaining frame receive failed\r\n");
-        return;
-    }
-
-    len = totalLength;
-
+static void BMS_Decode_And_Report(uint8_t *p, uint16_t len)
+{
     printf("\r\nReceived %u bytes\r\n", len);
 
-    for(uint16_t i = 0; i < len; i++)
-        printf("%02X ", frame[i]);
+    for (uint16_t i = 0; i < len; i++)
+        printf("%02X ", p[i]);
 
     printf("\r\n");
 
-    if(len < 50)
+    if (len < 50)
     {
         printf("Frame too short\r\n");
         return;
@@ -92,7 +158,6 @@ void Read_BMS_Data(void)
     uint16_t cycles;
     uint8_t soc;
 
-    /* Decode frame */
     packVoltage = ((uint16_t)p[4] << 8) | p[5];
     current     = ((int16_t)p[6] << 8) | p[7];
     remainCap   = ((uint16_t)p[8] << 8) | p[9];
@@ -181,9 +246,7 @@ void Read_BMS_Data(void)
 
     printf("\r\n");
     printf("========================================\r\n");
-
     printf("Pack Voltage     : %.2f V\r\n", packVoltage / 100.0f);
-
     printf("Current          : %.2f A\r\n", current / 100.0f);
 
     if(current > 0)
@@ -192,16 +255,10 @@ void Read_BMS_Data(void)
     }
 
     printf("Remaining Cap    : %.2f Ah\r\n", remainCap / 100.0f);
-
     printf("Nominal Cap      : %.2f Ah\r\n", ratedCap / 100.0f);
-
     printf("Cycle Count      : %u\r\n", cycles);
-
     printf("SOC              : %u %%\r\n", soc);
-
     printf("Checksum         : %02X %02X\r\n", p[len - 3], p[len - 2]);
-
     printf("End Byte         : %02X\r\n", p[len - 1]);
-
     printf("========================================\r\n");
 }
