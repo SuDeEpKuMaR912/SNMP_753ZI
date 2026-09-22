@@ -209,7 +209,7 @@ static void BMS_Decode_And_Report(uint8_t *p, uint16_t len)
 
         snprintf(bms_info,
                  sizeof(bms_info),
-                 "SOC: %u, State: %s, Voltage: %.2f V, Current: %.2f A, LC Gate Ext: %lu, IPPA Ext: %lu, STM UID: %08lX-%08lX-%08lX",
+                 "SOC: %u, State: %s, Voltage: %.2f V, Current: %.2f A, LC Gate Ext: %lu, IPPA Ext: %lu, UUID: %08lX-%08lX-%08lX",
                  soc,
                  state_str,
                  packVoltage / 100.0f,

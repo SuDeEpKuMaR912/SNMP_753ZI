@@ -34,6 +34,9 @@
 #define TELNET_LOGIN_PASSWORD      1
 #define TELNET_LOGIN_AUTHENTICATED 2
 
+#define TELNET_HISTORY_SIZE 10
+#define TELNET_HISTORY_CMD_LEN 64
+
 extern struct netif gnetif;
 
 static uint32_t lcgateext = 0;
@@ -60,8 +63,12 @@ struct telnet_client
     uint8_t completion_prefix_len;
     uint8_t completion_index;
     uint8_t completion_active;
-
     uint8_t last_was_cr;
+
+    char history[TELNET_HISTORY_SIZE][TELNET_HISTORY_CMD_LEN];
+
+    uint8_t history_count;
+    int8_t history_index;
 };
 
 static void telnet_show_completion(
@@ -136,7 +143,6 @@ static void telnet_show_completion(
     for (i = 0; i < match_count; i++)
     {
         response_len += snprintf(&response[response_len], sizeof(response) - response_len, "%-20s", cli_commands[matches[i]].name);
-
         if ((i + 1) % 3 == 0)
         {
             response_len += snprintf(&response[response_len], sizeof(response) - response_len, "\r\n");
@@ -151,6 +157,68 @@ static void telnet_show_completion(
     response_len += snprintf(&response[response_len], sizeof(response) - response_len, ">>> %s", client->command);
     tcp_write(tpcb, response, response_len, TCP_WRITE_FLAG_COPY);
     tcp_output(tpcb);
+}
+
+static void telnet_replace_command(struct tcp_pcb *tpcb, struct telnet_client *client, const char *new_command)
+{
+    uint8_t old_len;
+    uint8_t new_len;
+    uint8_t i;
+
+    static const char backspace[] = "\b";
+    static const char space[] = " ";
+
+    old_len = client->command_len;
+    new_len = strlen(new_command);
+
+    for (i = 0; i < client->cursor_pos; i++)
+    {
+        tcp_write(tpcb, backspace, 1, TCP_WRITE_FLAG_COPY);
+    }
+    for (i = 0; i < old_len; i++)
+    {
+        tcp_write(tpcb, space, 1, TCP_WRITE_FLAG_COPY);
+    }
+    for (i = 0; i < old_len; i++)
+    {
+        tcp_write(tpcb, backspace, 1, TCP_WRITE_FLAG_COPY);
+    }
+
+    memcpy(client->command, new_command, new_len);
+
+    client->command_len = new_len;
+    client->cursor_pos = new_len;
+    client->command[new_len] = '\0';
+
+    tcp_write(tpcb, new_command, new_len, TCP_WRITE_FLAG_COPY);
+    tcp_output(tpcb);
+}
+
+static void telnet_add_history(struct telnet_client *client)
+{
+    uint8_t i;
+
+    if (client->command_len == 0)
+    {
+        return;
+    }
+    if (client->history_count > 0 && strcmp(client->history[client->history_count - 1],
+               client->command) == 0)
+    {
+        return;
+    }
+    if (client->history_count >= TELNET_HISTORY_SIZE)
+    {
+        for (i = 1; i < TELNET_HISTORY_SIZE; i++)
+        {
+            strcpy(client->history[i - 1], client->history[i]);
+        }
+        client->history_count = TELNET_HISTORY_SIZE - 1;
+    }
+
+    strcpy(client->history[client->history_count], client->command);
+    client->history_count++;
+    client->history_index = -1;
 }
 
 static void get_default_network_config(const ip4_addr_t *ip, ip4_addr_t *mask, ip4_addr_t *gateway)
@@ -253,6 +321,60 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                }
                else if (data[i] == 'A' || data[i] == 'B')
                {
+                   /* Up arrow */
+                   if (data[i] == 'A')
+                   {
+                       if (client->history_count > 0)
+                       {
+                           if (client->history_index == -1)
+                           {
+                               client->history_index = client->history_count - 1;
+                           }
+                           else if (client->history_index > 0)
+                           {
+                               client->history_index--;
+                           }
+
+                           telnet_replace_command(
+                               tpcb,
+                               client,
+                               client->history[client->history_index]);
+                       }
+                   }
+
+                   /* Down arrow */
+                   else if (data[i] == 'B')
+                   {
+                       if (client->history_count > 0 &&
+                           client->history_index != -1)
+                       {
+                           if (client->history_index < client->history_count - 1)
+                           {
+                               client->history_index++;
+
+                               telnet_replace_command(
+                                   tpcb,
+                                   client,
+                                   client->history[client->history_index]);
+                           }
+                           else
+                           {
+                               client->history_index = -1;
+
+                               telnet_replace_command(
+                                   tpcb,
+                                   client,
+                                   "");
+                           }
+                       }
+                   }
+
+                   client->completion_active = 0;
+                   client->completion_index = 0;
+                   client->completion_prefix_len = 0;
+                   client->completion_prefix[0] = '\0';
+
+                   client->telnet_state = TELNET_STATE_DATA;
                }
 
                client->telnet_state = TELNET_STATE_DATA;
@@ -377,6 +499,9 @@ static err_t telnet_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
                         if (data[i] == '\r' || data[i] == '\n')
                         {
                             client->command[client->command_len] = '\0';
+
+                            telnet_add_history(client);
+
                             if (client->command_len == 0)
                             {
                                 static const char response[] = "\r\n>>> ";
@@ -949,7 +1074,6 @@ static err_t telnet_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 
     client->telnet_state = TELNET_STATE_DATA;
     client->telnet_command = 0;
-
     client->login_state = TELNET_LOGIN_USERNAME;
     client->username_len = 0;
     client->password_len = 0;
@@ -960,6 +1084,8 @@ static err_t telnet_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
     client->completion_index = 0;
     client->completion_active = 0;
     client->completion_prefix[0] = '\0';
+    client->history_count = 0;
+    client->history_index = -1;
 
     static const uint8_t telnet_options[] =
     {
